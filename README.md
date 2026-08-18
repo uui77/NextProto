@@ -9,9 +9,9 @@
 ---
 
 <div align="center">
-  <img src="https://img.shields.io/badge/ENGLISH-Current-Language-blue?style=for-the-badge" alt="English" width="150">
-  &nbsp;&nbsp;
-  <a href="README.zh.md"><img src="https://img.shields.io/badge/中文-查看中文版-green?style=for-the-badge" alt="中文"></a>
+
+**🇬🇧 English (Current)** &nbsp;&nbsp;|&nbsp;&nbsp; **[ 🇨🇳 中文 ](README.zh.md)**
+
 </div>
 
 ---
