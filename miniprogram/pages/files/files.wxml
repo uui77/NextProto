@@ -22,7 +22,7 @@
         <text class="file-name">{{item.name}}</text>
         <view class="file-meta">
           <text class="meta-tag">{{item.duration}}s</text>
-          <text class="meta-tag" wx:if="{{item.size > 0}}">{{item.size > 1048576 ? (item.size / 1048576).toFixed(1) + ' MB' : (item.size / 1024).toFixed(0) + ' KB'}}</text>
+          <text class="meta-tag" wx:if="{{item.sizeText}}">{{item.sizeText}}</text>
         </view>
       </view>
       <view class="file-actions">
@@ -45,7 +45,7 @@
     <view class="downloaded-item" wx:for="{{downloadedFiles}}" wx:key="name" wx:for-index="idx">
       <view class="dl-info" data-index="{{idx}}" bindtap="onPlayDownloaded">
         <text class="dl-name">{{item.name}}</text>
-        <text class="dl-meta">{{item.size > 1048576 ? (item.size / 1048576).toFixed(1) + ' MB' : (item.size / 1024).toFixed(0) + ' KB'}} · {{item.isWav ? 'WAV' : 'OPUS'}}</text>
+        <text class="dl-meta">{{item.sizeText}} · {{item.typeText}}</text>
       </view>
       <button class="btn btn-ghost action-btn" size="mini"
         data-index="{{idx}}" bindtap="onShareDownloaded">分享</button>

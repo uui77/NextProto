@@ -24,9 +24,13 @@ Page({
     this.setData({ loading: true });
     try {
       const files = await recorder.getFileList();
-      // 按时间倒序
+      // 按时间倒序 + 预处理 sizeText
       files.sort((a, b) => (a.name > b.name ? -1 : 1));
-      this.setData({ files, loading: false });
+      const processed = files.map(f => ({
+        ...f,
+        sizeText: this.formatSize(f.size),
+      }));
+      this.setData({ files: processed, loading: false });
       wx.showToast({ title: `共 ${files.length} 条录音`, icon: 'none' });
     } catch (e) {
       this.setData({ loading: false });
@@ -57,8 +61,10 @@ Page({
         name: fileName,
         path: savePath,
         size: result.data.byteLength,
+        sizeText: this.formatSize(result.data.byteLength),
         time: new Date().toLocaleString(),
         isWav: result.isWav,
+        typeText: result.isWav ? 'WAV' : 'OPUS',
       };
       const downloadedFiles = [dl, ...this.data.downloadedFiles];
       this.setData({ downloadedFiles, downloading: false, downloadProgress: '' });

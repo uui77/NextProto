@@ -13,6 +13,7 @@ Page({
     deviceInfo: null,
     battery: null,
     capacity: null,
+    capacityText: '',
     version: null,
   },
 
@@ -110,7 +111,8 @@ Page({
     } catch (e) { this.addLog('WARN', `电量获取失败`); }
     try {
       const cap = await recorder.getCapacity();
-      this.setData({ capacity: cap });
+      const capText = `${(cap.remain/1048576).toFixed(0)} / ${(cap.total/1048576).toFixed(0)} MB`;
+      this.setData({ capacity: cap, capacityText: capText });
       this.addLog('INFO', `容量: ${(cap.remain/1048576).toFixed(1)}MB / ${(cap.total/1048576).toFixed(1)}MB`);
     } catch (e) { this.addLog('WARN', `容量获取失败`); }
     try {

@@ -62,7 +62,7 @@
         </view>
         <view class="info-item" wx:if="{{capacity}}">
           <text class="info-label">💾 容量</text>
-          <text class="info-value">{{(capacity.remain/1048576).toFixed(0)}} / {{(capacity.total/1048576).toFixed(0)}} MB</text>
+          <text class="info-value">{{capacityText}}</text>
         </view>
         <view class="info-item" wx:if="{{version}}">
           <text class="info-label">📦 固件</text>

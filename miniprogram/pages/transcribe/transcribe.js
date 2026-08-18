@@ -15,6 +15,7 @@ Page({
     rtFilename: '',
     packetCount: 0,
     elapsedSec: 0,
+    elapsedTime: '00:00',
 
     // 转写结果
     transcribing: false,
@@ -88,13 +89,18 @@ Page({
         rtFilename: name,
         packetCount: 0,
         elapsedSec: 0,
+        elapsedTime: '00:00',
         transcript: '',
         summary: '',
       });
       // 计时器
       this._timer = setInterval(() => {
         if (!this.data.paused) {
-          this.setData({ elapsedSec: this.data.elapsedSec + 1 });
+          const sec = this.data.elapsedSec + 1;
+          const m = Math.floor(sec / 60);
+          const s = sec % 60;
+          const timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+          this.setData({ elapsedSec: sec, elapsedTime: timeStr });
         }
       }, 1000);
     } catch (e) {

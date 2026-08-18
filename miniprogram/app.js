@@ -1,5 +1,5 @@
 // app.js — AI录音卡 QS668 微信小程序
-const recorder = require('./utils/recorder.js');
+const { recorder } = require('./utils/recorder.js');
 
 App({
   globalData: {

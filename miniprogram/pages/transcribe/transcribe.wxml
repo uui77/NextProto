@@ -5,11 +5,11 @@
     <view class="card record-card">
       <!-- 录音状态 -->
       <view class="record-status">
-        <view class="record-indicator {{recording ? (paused ? 'paused' : 'recording') : 'idle'}}">
+        <view class="record-indicator {{recording && paused ? 'paused' : (recording ? 'recording' : 'idle')}}">
           <view class="indicator-dot" wx:if="{{recording && !paused}}"></view>
-          <text>{{recording ? (paused ? '已暂停' : '录音中') : '待机'}}</text>
+          <text>{{recording && paused ? '已暂停' : (recording ? '录音中' : '待机')}}</text>
         </view>
-        <text class="record-time">{{formatTime(elapsedSec)}}</text>
+        <text class="record-time">{{elapsedTime}}</text>
       </view>
 
       <!-- 录音信息 -->

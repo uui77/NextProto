@@ -15,7 +15,6 @@
   "sitemapLocation": "sitemap.json",
   "lazyCodeLoading": "requiredComponents",
   "permission": {
-    "scope.bluetooth": { "desc": "用于连接AI录音卡设备" },
     "scope.userLocation": { "desc": "蓝牙扫描需要位置权限" }
   },
   "requiredPrivateInfos": ["getLocation"],
