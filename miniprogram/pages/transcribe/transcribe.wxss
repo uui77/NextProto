@@ -1,0 +1,161 @@
+/* pages/transcribe/transcribe.wxss */
+.container { padding-bottom: 40rpx; }
+
+/* 录音卡片 */
+.record-card { padding: 40rpx 24rpx; text-align: center; }
+.record-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 32rpx;
+}
+.record-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 12rpx 32rpx;
+  border-radius: 40rpx;
+  font-size: 28rpx;
+  font-weight: 500;
+}
+.record-indicator.idle {
+  background: var(--bg-card-light);
+  color: var(--text-muted);
+}
+.record-indicator.recording {
+  background: rgba(231,76,60,0.15);
+  color: var(--danger);
+}
+.record-indicator.paused {
+  background: rgba(253,203,110,0.15);
+  color: var(--warn);
+}
+.indicator-dot {
+  width: 16rpx;
+  height: 16rpx;
+  background: var(--danger);
+  border-radius: 50%;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+.record-time {
+  font-size: 64rpx;
+  font-weight: 200;
+  color: #fff;
+  font-family: "Courier New", monospace;
+  letter-spacing: 4rpx;
+}
+.record-info {
+  margin-bottom: 24rpx;
+}
+.info-line {
+  display: block;
+  font-size: 24rpx;
+  color: var(--text-muted);
+  margin-top: 4rpx;
+}
+.record-controls {
+  display: flex;
+  gap: 16rpx;
+  justify-content: center;
+}
+.record-btn {
+  flex: 1;
+  max-width: 200rpx;
+}
+
+/* 文件转写卡片 */
+.file-transcribe-card { padding: 28rpx 24rpx; }
+.file-info-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+.file-icon { font-size: 48rpx; }
+.file-detail { flex: 1; min-width: 0; }
+.file-name-text {
+  display: block;
+  font-size: 28rpx;
+  color: #fff;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-path-text {
+  display: block;
+  font-size: 22rpx;
+  color: var(--text-muted);
+  margin-top: 4rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcribe-btn { width: 100%; }
+
+/* 结果卡片 */
+.result-card { padding: 24rpx; }
+.result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+}
+.result-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #fff;
+}
+.copy-btn { min-width: 80rpx; height: 56rpx; font-size: 22rpx; }
+.result-scroll {
+  max-height: 500rpx;
+}
+.result-text {
+  font-size: 28rpx;
+  color: var(--text-main);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.summary-action { padding: 20rpx 0; }
+.summary-btn { width: 100%; }
+
+/* API 配置 */
+.config-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx;
+  font-size: 26rpx;
+  color: var(--text-muted);
+}
+.toggle-arrow { font-size: 22rpx; }
+.config-card { padding: 24rpx; }
+.config-section { margin-bottom: 24rpx; }
+.config-label {
+  display: block;
+  font-size: 26rpx;
+  color: var(--primary-light);
+  margin-bottom: 12rpx;
+  font-weight: 500;
+}
+.config-input {
+  background: var(--bg-card-light);
+  border: 1rpx solid var(--border);
+  border-radius: 12rpx;
+  padding: 20rpx;
+  color: #fff;
+  font-size: 26rpx;
+}
+.config-hint {
+  display: block;
+  font-size: 22rpx;
+  color: var(--text-muted);
+  margin-top: 8rpx;
+}
+.save-config-btn { width: 100%; }

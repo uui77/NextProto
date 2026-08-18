@@ -1,0 +1,101 @@
+<!--pages/scan/scan.wxml— 扫描连接页 -->
+<view class="container">
+  <!-- 顶部标题 -->
+  <view class="header">
+    <text class="title">AI 录音卡</text>
+    <text class="subtitle">QS668 蓝牙连接</text>
+  </view>
+
+  <!-- 未连接状态 -->
+  <block wx:if="{{!connected}}">
+    <!-- 扫描控制 -->
+    <view class="card scan-section">
+      <view class="scan-row">
+        <button class="btn btn-primary scan-btn {{scanning ? 'scanning' : ''}}"
+          bindtap="onScan" disabled="{{scanning || connecting}}">
+          {{scanning ? '扫描中...' : '🔍 扫描录音笔'}}
+        </button>
+      </view>
+      <view class="compat-row">
+        <switch checked="{{compatScan}}" bindchange="onCompatChange" color="#6c5ce7" />
+        <text class="compat-label">兼容扫描（显示全部蓝牙设备）</text>
+      </view>
+    </view>
+
+    <!-- 设备列表 -->
+    <view class="card" wx:if="{{devices.length > 0}}">
+      <text class="section-title">发现 {{devices.length}} 个设备</text>
+      <view class="device-list">
+        <view class="device-item" wx:for="{{devices}}" wx:key="deviceId"
+          data-id="{{item.deviceId}}" bindtap="onConnectDevice">
+          <view class="device-icon">🎧</view>
+          <view class="device-info">
+            <text class="device-name">{{item.name || item.localName || '未知设备'}}</text>
+            <text class="device-id">{{item.deviceId}}</text>
+          </view>
+          <view class="device-rssi">{{item.RSSI}} dBm</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 连接中提示 -->
+    <view class="card" wx:if="{{connecting}}">
+      <view class="connecting">
+        <view class="loading-spinner"></view>
+        <text>正在连接录音笔...</text>
+      </view>
+    </view>
+  </block>
+
+  <!-- 已连接状态 -->
+  <block wx:else>
+    <view class="card connected-card">
+      <view class="status-row">
+        <view class="status-dot connected"></view>
+        <text class="status-text">已连接</text>
+      </view>
+      <!-- 设备信息 -->
+      <view class="info-grid">
+        <view class="info-item" wx:if="{{battery !== null}}">
+          <text class="info-label">🔋 电量</text>
+          <text class="info-value">{{battery}}%</text>
+        </view>
+        <view class="info-item" wx:if="{{capacity}}">
+          <text class="info-label">💾 容量</text>
+          <text class="info-value">{{(capacity.remain/1048576).toFixed(0)}} / {{(capacity.total/1048576).toFixed(0)}} MB</text>
+        </view>
+        <view class="info-item" wx:if="{{version}}">
+          <text class="info-label">📦 固件</text>
+          <text class="info-value">{{version}}</text>
+        </view>
+      </view>
+      <button class="btn btn-ghost refresh-btn" bindtap="fetchDeviceInfo" size="mini">刷新信息</button>
+    </view>
+
+    <!-- 功能入口 -->
+    <view class="action-grid">
+      <view class="action-card" bindtap="goFiles">
+        <view class="action-icon">📁</view>
+        <text class="action-title">文件管理</text>
+        <text class="action-desc">查看/下载录音</text>
+      </view>
+      <view class="action-card" bindtap="goTranscribe">
+        <view class="action-icon">🎙️</view>
+        <text class="action-title">实时转写</text>
+        <text class="action-desc">录音并实时转文字</text>
+      </view>
+    </view>
+
+    <!-- 断开按钮 -->
+    <button class="btn btn-danger disconnect-btn" bindtap="onDisconnect">断开连接</button>
+  </block>
+
+  <!-- 日志区 -->
+  <view class="card log-card">
+    <text class="section-title">日志</text>
+    <scroll-view scroll-y class="log-scroll">
+      <view class="empty" wx:if="{{logs.length === 0}}">页面已加载。请先扫描并连接录音笔。</view>
+      <view wx:for="{{logs}}" wx:key="index" class="log-line log-{{item.level}}">{{item.text}}</view>
+    </scroll-view>
+  </view>
+</view>

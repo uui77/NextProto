@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NextProto · 录音卡控制台</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260812-fix">
+<link rel="shortcut icon" href="favicon.ico?v=20260812-fix">
+<link rel="apple-touch-icon" href="favicon.svg?v=20260812-fix">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Ambient background -->
+<div class="ambient"></div>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-title">NextProto</div>
+        <div class="brand-sub">录音卡控制台</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-section="overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span>概览</span>
+      </button>
+      <button class="nav-item" data-section="files">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>文件</span>
+      </button>
+      <button class="nav-item" data-section="realtime">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        <span>实时</span>
+      </button>
+      <button class="nav-item" data-section="control">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>录音</span>
+      </button>
+      <button class="nav-item" data-section="tools">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <span>工具</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="theme-toggle" id="themeToggle" title="切换主题">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Header -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 id="pageTitle">概览</h1>
+        <p id="pageDesc" class="page-desc">管理你的录音卡，查看状态，下载与转写文件</p>
+      </div>
+      <div class="topbar-right">
+        <div class="status-pill" id="connBadge">
+          <span class="status-dot"></span>
+          <span class="status-text">未连接</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Overview Section -->
+    <section class="page" id="page-overview">
+
+      <!-- Connection Card -->
+      <div class="card card-connection">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">设备连接</h2>
+            <p class="card-desc">通过蓝牙扫描并连接你的录音卡</p>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-primary" id="scanBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5l11 11"/><path d="M21 21l-1-1"/><path d="M3 3l1 1"/><path d="M18 22l4-4"/><path d="M2 6l4-4"/><path d="M3 10l7-7 4 4-7 7z"/><path d="M14 14l7-7-4-4-7 7z"/></svg>
+              扫描设备
+            </button>
+            <label class="toggle-compat">
+              <input type="checkbox" id="compatChk">
+              <span>兼容扫描</span>
+            </label>
+            <label class="toggle-compat">
+              <input type="checkbox" id="autoPairChk" checked>
+              <span title="连接前先调用系统配对弹窗（QS668/CB08 常见配对码：0000 / 1234）">连前自动配对</span>
+            </label>
+            <button class="btn btn-ghost danger" id="disconnectBtn" disabled>
+              断开
+            </button>
+          </div>
+        </div>
+        <div id="deviceList" class="device-list"></div>
+      </div>
+
+      <!-- Status Cards -->
+      <div class="status-grid">
+        <div class="stat-card" data-stat="battery">
+          <div class="stat-icon stat-icon-battery">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="18" height="10" rx="2"/><line x1="22" y1="11" x2="22" y2="13"/></svg>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value" id="statBattery">--</div>
+            <div class="stat-label">电量</div>
+          </div>
+        </div>
+        <div class="stat-card" data-stat="capacity">
+          <div class="stat-icon stat-icon-storage">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value" id="statCapacity">--</div>
+            <div class="stat-label">存储</div>
+          </div>
+        </div>
+        <div class="stat-card" data-stat="firmware">
+          <div class="stat-icon stat-icon-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value" id="statFirmware">--</div>
+            <div class="stat-label">固件版本</div>
+          </div>
+        </div>
+        <div class="stat-card" data-stat="recording">
+          <div class="stat-icon stat-icon-record">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value" id="statRecording">--</div>
+            <div class="stat-label">录音状态</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">快捷操作</h2>
+            <p class="card-desc">一键巡检设备健康状态</p>
+          </div>
+        </div>
+        <div class="action-grid">
+          <button class="action-tile" id="smokeBtn" data-need-conn>
+            <div class="action-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            </div>
+            <div class="action-label">只读巡检</div>
+            <div class="action-sub">一次性读取所有状态</div>
+          </button>
+          <button class="action-tile" id="synctimeBtn" data-need-conn>
+            <div class="action-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="action-label">同步时间</div>
+            <div class="action-sub">校准设备时间</div>
+          </button>
+          <button class="action-tile" id="infoBtn" data-need-conn>
+            <div class="action-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </div>
+            <div class="action-label">设备信息</div>
+            <div class="action-sub">电量/容量/固件</div>
+          </button>
+          <button class="action-tile" data-need-conn onclick="document.querySelector('[data-section=files]').click()">
+            <div class="action-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </div>
+            <div class="action-label">文件列表</div>
+            <div class="action-sub">查看并下载录音</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Info Panel -->
+      <div class="card hidden" id="infoCard">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">巡检结果</h2>
+          </div>
+        </div>
+        <div class="info-grid" id="infoPanel"></div>
+      </div>
+    </section>
+
+    <!-- Files Section -->
+    <section class="page hidden" id="page-files">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">设备文件</h2>
+            <p class="card-desc">管理录音文件，下载并转写</p>
+          </div>
+          <div class="card-actions">
+            <div class="segmented">
+              <button class="seg-btn active" data-view="device">设备</button>
+              <button class="seg-btn" data-view="local">本地</button>
+            </div>
+            <select class="select" id="modelSel" title="转写模型">
+              <option value="sensevoice">SenseVoice（快·多语种·242MB ONNX）</option>
+              <option value="paraformer">Paraformer（中文高精度·889MB）</option>
+            </select>
+            <label class="chip-toggle" title="说话人分离：按 Speaker 编号分段">
+              <input type="checkbox" id="spkToggle">
+              <span class="chip-body">
+                <span class="chip-slider"></span>
+                <span class="chip-label">🗣 说话人分离</span>
+              </span>
+            </label>
+            <label class="chip-toggle" title="下载完自动转写（按当前选择的模型/语言/说话人参数）">
+              <input type="checkbox" id="autoTranscribeToggle">
+              <span class="chip-body">
+                <span class="chip-slider"></span>
+                <span class="chip-label">⚡ 下载后自动转写</span>
+              </span>
+            </label>
+            <select class="select" id="langSel" title="识别语言">
+              <option value="auto">自动检测</option>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+              <option value="yue">粤语</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+            </select>
+            <select class="select" id="gainSel" title="音量增益：声音小的录音自动放大，提升转写准确率">
+              <option value="auto">🔊 自动增益</option>
+              <option value="off">不增益</option>
+              <option value="2x">2x 放大</option>
+              <option value="3x">3x 放大</option>
+              <option value="5x">5x 放大</option>
+            </select>
+            <button class="btn" id="aiSummarySetupBtn" title="配置 AI 摘要（DeepSeek / Ollama 本地 / API 中转站）">
+              🤖 摘要设置
+            </button>
+            <button class="btn btn-primary" id="filesBtn" data-need-conn>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              刷新
+            </button>
+            <button class="btn" id="bulkTranscribeBtn" title="转写所有已下载文件">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
+              批量转写
+            </button>
+          </div>
+        </div>
+
+        <!-- Device Files Table -->
+        <div class="table-wrap" id="deviceTableWrap">
+          <table class="table" id="fileTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>文件名</th>
+                <th>时长</th>
+                <th>大小</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="fileRows"></tbody>
+          </table>
+          <div class="empty-state" id="deviceEmpty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <p class="es-title">设备上暂无录音文件</p>
+            <p class="es-desc">试着先在录音卡上录一段，然后点"刷新"。</p>
+          </div>
+        </div>
+
+        <!-- Local Files -->
+        <div class="local-wrap hidden" id="localWrap">
+          <div id="localList" class="local-list"></div>
+          <div class="empty-state hidden" id="localEmpty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" width="64" height="64"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <p>本地暂无文件</p>
+          </div>
+        </div>
+
+        <!-- Progress -->
+        <div class="progress-section hidden" id="progressWrap">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressBar"></div>
+          </div>
+          <span class="progress-text" id="progressText"></span>
+        </div>
+      </div>
+
+      <!-- Transcription Result -->
+      <div class="card hidden" id="transcribeCard">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">转写结果</h2>
+            <p class="card-desc" id="transcribeMeta"></p>
+          </div>
+          <div class="card-actions">
+            <div class="search-input-wrap" title="搜索转写内容（回车定位下一个）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input id="segSearchInput" class="search-input" type="search" placeholder="搜索转写文字…">
+              <span class="search-count hidden" id="segSearchCount"></span>
+            </div>
+            <div class="dropdown" id="copyDropdown" title="复制为多种格式">
+              <button class="btn btn-ghost" id="copyBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                复制 ▾
+              </button>
+              <div class="dropdown-menu" id="copyMenu">
+                <button class="dd-item" data-copy="plain">📄 复制纯文本</button>
+                <button class="dd-item" data-copy="spk">🗣 复制（带说话人）</button>
+                <button class="dd-item" data-copy="ts">⏱ 复制（带时间戳）</button>
+                <button class="dd-item" data-copy="full">🧾 复制（说话人+时间戳）</button>
+              </div>
+            </div>
+            <button class="btn btn-ghost" id="downloadTxtBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              下载 txt
+            </button>
+            <div class="seg-divider"></div>
+            <button class="btn btn-ghost" id="summaryBtn" title="AI 生成结构化摘要 + 思维导图（调用本地/云端大模型）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 1.5.5 2.9 1.3 4.1L4 20l5.9-1.3c1.2.8 2.6 1.3 4.1 1.3h1a8 8 0 0 0 0-16z"/><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 14c2 0 3-1 3-1"/></svg>
+              🤖 AI 摘要
+            </button>
+            <button class="btn btn-ghost" id="exportMdBtn" title="导出 Markdown（转写全文 + AI 摘要，一次存档）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13v5l2-2 2 2v-5"/><path d="M14 13h3"/></svg>
+              📄 导出 MD
+            </button>
+            <div class="seg-divider"></div>
+            <button class="btn btn-ghost" id="editBtn" title="进入编辑模式">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              编辑
+            </button>
+            <button class="btn btn-primary hidden" id="saveBtn" title="保存修改到服务器">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存
+            </button>
+            <button class="btn btn-ghost hidden" id="cancelBtn">取消</button>
+            <button class="btn btn-ghost" id="reTranscribeBtn" title="用当前模型重新转写（覆盖之前结果）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              重新转写
+            </button>
+            <div class="seg-divider"></div>
+            <button class="btn btn-ghost close-card-btn" id="closeTranscribeBtn" title="关闭转写结果">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              关闭
+            </button>
+          </div>
+        </div>
+        <div class="transcribe-audio hidden" id="transcribeAudioWrap">
+          <div class="audio-toolbar">
+            <div class="audio-controls-left">
+              <button class="audio-ctrl-btn" id="audioPlayBtn" title="播放 / 暂停">
+                <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                <svg class="icon-pause hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+              </button>
+              <button class="audio-ctrl-btn" id="audioStopBtn" title="停止">
+                <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+              </button>
+            </div>
+            <div class="audio-progress-wrap" id="audioProgress">
+              <div class="audio-progress-bg"></div>
+              <div class="audio-progress-fill" id="audioProgressFill"></div>
+            </div>
+            <span class="audio-pos" id="audioPos">00:00 / 00:00</span>
+            <audio id="transcribeAudio" preload="metadata" hidden></audio>
+            <div class="seg-speed-group" id="speedGroup" title="播放倍速">
+              <button class="seg-speed" data-rate="0.75">0.75×</button>
+              <button class="seg-speed active" data-rate="1">1×</button>
+              <button class="seg-speed" data-rate="1.25">1.25×</button>
+              <button class="seg-speed" data-rate="1.5">1.5×</button>
+              <button class="seg-speed" data-rate="1.8">1.8×</button>
+              <button class="seg-speed" data-rate="2">2×</button>
+            </div>
+          </div>
+        </div>
+        <div class="transcribe-body" id="transcribeBody">
+          <!-- View mode: segmented display with timestamps -->
+          <div class="segments-view" id="segmentsView"></div>
+          <!-- Edit mode: plain textarea -->
+          <div class="edit-view hidden" id="editView">
+            <div class="edit-toolbar">
+              <span class="muted">编辑文本内容，保存会覆盖原 .txt 文件（并保留分段结构）</span>
+              <span class="muted hidden" id="editNoChangeTip" style="color:var(--accent);">内容未变化，无需保存</span>
+            </div>
+            <textarea id="transcribeEdit" spellcheck="false"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Danger zone -->
+      <div class="card card-danger hidden" id="dangerCard">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">危险操作</h2>
+            <p class="card-desc">不可逆操作，请谨慎执行</p>
+          </div>
+        </div>
+        <div class="danger-actions">
+          <button class="btn btn-danger" id="deleteAllBtn" data-need-conn>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+            删除全部文件
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Realtime Section -->
+    <section class="page hidden" id="page-realtime">
+      <div class="card card-realtime">
+        <div class="realtime-visual" id="realtimeVisual">
+          <div class="pulse-ring"></div>
+          <div class="pulse-ring pulse-ring-2"></div>
+          <div class="mic-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </div>
+        </div>
+        <div class="realtime-info">
+          <h2 class="realtime-title">实时转写</h2>
+          <p class="realtime-sub" id="rtFileName">未开始</p>
+          <div class="realtime-stats">
+            <div class="rt-stat">
+              <div class="rt-stat-value" id="rtBytes">0 B</div>
+              <div class="rt-stat-label">已接收码流</div>
+            </div>
+            <div class="rt-stat">
+              <div class="rt-stat-value" id="rtStatus">待机</div>
+              <div class="rt-stat-label">状态</div>
+            </div>
+          </div>
+        </div>
+        <div class="realtime-controls">
+          <button class="btn btn-primary btn-lg" data-rt="start" data-need-conn>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            开始实时
+          </button>
+          <button class="btn btn-ghost" data-rt="pause" data-need-conn>暂停</button>
+          <button class="btn btn-ghost" data-rt="resume" data-need-conn>继续</button>
+          <button class="btn btn-ghost danger" data-rt="stop" data-need-conn>停止</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Control Section -->
+    <section class="page hidden" id="page-control">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">录音控制</h2>
+            <p class="card-desc">远程控制设备录音</p>
+          </div>
+        </div>
+        <div class="control-grid">
+          <button class="control-card" data-rec="start" data-need-conn>
+            <div class="control-icon control-icon-start">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>
+            </div>
+            <div class="control-label">开始录音</div>
+          </button>
+          <button class="control-card" data-rec="save" data-need-conn>
+            <div class="control-icon control-icon-save">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </div>
+            <div class="control-label">保存录音</div>
+          </button>
+          <button class="control-card" data-rec="pause" data-need-conn>
+            <div class="control-icon control-icon-pause">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            </div>
+            <div class="control-label">暂停</div>
+          </button>
+          <button class="control-card" data-rec="resume" data-need-conn>
+            <div class="control-icon control-icon-resume">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </div>
+            <div class="control-label">继续</div>
+          </button>
+        </div>
+
+        <div class="control-info">
+          <div class="info-row">
+            <span class="info-key">录音状态</span>
+            <button class="btn btn-sm btn-ghost" data-rec="state" data-need-conn>查询</button>
+            <span class="info-val" id="recState">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">录音时长</span>
+            <button class="btn btn-sm btn-ghost" data-rec="time" data-need-conn>查询</button>
+            <span class="info-val" id="recTime">--</span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">当前文件名</span>
+            <button class="btn btn-sm btn-ghost" data-rec="name" data-need-conn>查询</button>
+            <span class="info-val" id="recName">--</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">增益设置</h2>
+            <p class="card-desc">调整麦克风增益级别</p>
+          </div>
+        </div>
+        <div class="gain-control">
+          <div class="gain-options">
+            <button class="gain-btn" data-gain="1" data-need-conn>
+              <span>低</span>
+              <small>安静环境</small>
+            </button>
+            <button class="gain-btn active" data-gain="2" data-need-conn>
+              <span>中</span>
+              <small>一般环境</small>
+            </button>
+            <button class="gain-btn" data-gain="3" data-need-conn>
+              <span>高</span>
+              <small>嘈杂环境</small>
+            </button>
+          </div>
+          <div class="gain-current">
+            当前增益：<strong id="gainCurrent">中</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tools Section -->
+    <section class="page hidden" id="page-tools">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">原始命令</h2>
+            <p class="card-desc">用于调试和协议验证</p>
+          </div>
+        </div>
+        <div class="raw-form">
+          <div class="raw-row">
+            <div class="raw-field">
+              <label>TYPE</label>
+              <input type="number" id="rawType" min="0" max="255" value="0">
+            </div>
+            <div class="raw-field">
+              <label>CMD</label>
+              <input type="number" id="rawCmd" min="0" max="255" value="3">
+            </div>
+            <div class="raw-field raw-field-flex">
+              <label>参数 HEX</label>
+              <input type="text" id="rawParams" placeholder="如 01ff，可空">
+            </div>
+            <button class="btn btn-primary" id="rawBtn" data-need-conn>发送</button>
+          </div>
+          <div class="raw-row">
+            <div class="raw-field raw-field-flex">
+              <label>完整帧 HEX</label>
+              <input type="text" id="rawFrame" placeholder="5a 03 9e 20 1e 00 02 02 ...">
+            </div>
+            <button class="btn btn-ghost" id="rawFrameBtn" data-need-conn>直发帧</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Protocol Self-Test -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <h2 class="card-title">协议自检</h2>
+            <p class="card-desc">本地校验 CRC、帧构造与解析器，无需连接设备</p>
+          </div>
+          <button class="btn btn-primary" id="selfTestBtn">运行自检</button>
+        </div>
+        <pre class="self-test-output" id="selfTestOutput">等待运行</pre>
+      </div>
+    </section>
+
+    <!-- Log Panel (bottom) -->
+    <div class="log-panel">
+      <div class="log-header">
+        <span class="log-title">通信日志</span>
+        <div class="log-actions">
+          <button class="btn btn-sm btn-ghost" id="exportLogBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            导出
+          </button>
+          <button class="btn btn-sm btn-ghost" id="clearLogBtn">清空</button>
+        </div>
+      </div>
+      <div class="log-body" id="log"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-stack" id="toastStack"></div>
+
+<!-- 音频剪辑编辑器 -->
+<div class="modal-overlay hidden" id="clipModal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>🎵 音频剪辑</h3>
+      <button class="btn-icon" id="clipCloseBtn" title="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="clip-info" id="clipInfo">加载中…</div>
+      <div class="clip-timeline-wrap">
+        <div class="clip-timeline" id="clipTimeline">
+          <div class="clip-track"></div>
+          <div class="clip-region" id="clipRegion">
+            <div class="clip-handle clip-handle-l" id="clipHandleL"></div>
+            <div class="clip-handle clip-handle-r" id="clipHandleR"></div>
+          </div>
+        </div>
+      </div>
+      <div class="clip-time-row">
+        <span class="clip-time-label">起点</span>
+        <span class="clip-time-val" id="clipStartVal">00:00.0</span>
+        <span class="clip-time-label">终点</span>
+        <span class="clip-time-val" id="clipEndVal">00:00.0</span>
+        <span class="clip-time-label">时长</span>
+        <span class="clip-time-val" id="clipDurVal">00:00.0</span>
+      </div>
+      <div class="clip-controls">
+        <button class="btn btn-ghost" id="clipPlayBtn" title="试听选中片段">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          试听片段
+        </button>
+        <button class="btn btn-ghost" id="clipStopBtn" title="停止">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+        </button>
+        <div class="clip-speed-group">
+          <button class="seg-speed clip-speed" data-rate="0.75">0.75×</button>
+          <button class="seg-speed clip-speed active" data-rate="1">1×</button>
+          <button class="seg-speed clip-speed" data-rate="1.5">1.5×</button>
+        </div>
+        <input type="text" class="clip-name-input" id="clipNameInput" placeholder="输出文件名（可选，不含后缀）">
+        <button class="btn btn-primary" id="clipExportBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          导出保存
+        </button>
+      </div>
+      <audio id="clipAudio" preload="metadata" hidden></audio>
+    </div>
+  </div>
+</div>
+
+<!-- ============ AI 摘要设置 Modal ============ -->
+<div class="modal-overlay hidden" id="llmConfigModal">
+  <div class="modal-card modal-lg">
+    <div class="modal-header">
+      <h3>🤖 AI 摘要设置</h3>
+      <button class="btn-icon" id="llmConfigCloseBtn" title="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label class="form-label">AI 服务来源</label>
+        <div class="provider-cards" id="providerCards">
+          <label class="provider-card" data-provider="deepseek">
+            <input type="radio" name="llm_provider" value="deepseek">
+            <div class="provider-emoji">🚀</div>
+            <div class="provider-name">DeepSeek API</div>
+            <div class="provider-desc">推荐 · 中文好 / 成本低 / 官方直连</div>
+          </label>
+          <label class="provider-card" data-provider="ollama">
+            <input type="radio" name="llm_provider" value="ollama">
+            <div class="provider-emoji">🏠</div>
+            <div class="provider-name">本地 Ollama</div>
+            <div class="provider-desc">完全离线 · 零成本 · 需大内存</div>
+          </label>
+          <label class="provider-card" data-provider="relay">
+            <input type="radio" name="llm_provider" value="relay">
+            <div class="provider-emoji">🔁</div>
+            <div class="provider-name">API 中转站</div>
+            <div class="provider-desc">多模型通用 · 兼容 OpenAI 格式</div>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="form-label" for="llm_base_url">API Base URL</label>
+        <input class="form-input" id="llm_base_url" type="text"
+               placeholder="https://api.deepseek.com  或 http://127.0.0.1:11434/v1">
+        <small class="form-hint" id="llmUrlHint"></small>
+      </div>
+
+      <div class="form-row">
+        <label class="form-label" for="llm_model_name">模型名称</label>
+        <input class="form-input" id="llm_model_name" type="text"
+               placeholder="deepseek-chat / qwen2.5:7b / gpt-4o-mini ...">
+      </div>
+
+      <div class="form-row">
+        <label class="form-label" for="llm_api_key">API Key</label>
+        <input class="form-input" id="llm_api_key" type="password" autocomplete="new-password"
+               placeholder="sk-... （Ollama 本地可留空）">
+        <small class="form-hint">仅保存在本地 <code>downloads/.llm_config.json</code>，不会上传。</small>
+      </div>
+
+      <div class="form-row form-row-inline">
+        <div>
+          <label class="form-label" for="llm_temperature">温度：<span id="llmTempVal">0.3</span></label>
+          <input id="llm_temperature" type="range" min="0" max="1.5" step="0.1" value="0.3">
+        </div>
+        <div>
+          <label class="form-label" for="llm_timeout">超时（秒）：<span id="llmTimeoutVal">120</span></label>
+          <input id="llm_timeout" type="range" min="10" max="600" step="10" value="120">
+        </div>
+        <div class="llm-enabled-wrap">
+          <label class="chip-toggle big">
+            <input type="checkbox" id="llm_enabled">
+            <span class="chip-body">
+              <span class="chip-slider"></span>
+              <span class="chip-label">启用 AI 摘要</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-row form-actions">
+        <button class="btn btn-ghost" id="llmTestBtn">
+          🔌 测试连接
+        </button>
+        <button class="btn btn-ghost" id="llmResetBtn">恢复默认</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" id="llmCancelBtn">取消</button>
+        <button class="btn btn-primary" id="llmSaveBtn">💾 保存配置</button>
+      </div>
+
+      <div class="llm-status-line" id="llmStatusLine"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ AI 摘要结果 Modal（含思维导图） ============ -->
+<div class="modal-overlay hidden" id="summaryModal">
+  <div class="modal-card modal-xl">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0">🤖 AI 摘要</h3>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="summarySubtitle"></div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn btn-sm btn-ghost" id="summaryRefreshBtn" title="忽略缓存重新生成">↻ 重新生成</button>
+        <button class="btn btn-sm btn-primary" id="summarySaveBtn" title="保存编辑后的摘要与思维导图大纲（修改后会高亮）">💾 保存</button>
+        <button class="btn btn-sm btn-ghost" id="summaryCopyBtn" title="复制摘要为文本">📋 复制</button>
+        <div class="btn-split-group" id="summaryDownloadGroup" data-visible-tab="structured" title="下载结构化内容">
+          <button class="btn btn-sm btn-ghost" id="summaryDownloadBtn">⬇ 下载</button>
+          <div class="btn-split-menu" id="summaryDownloadMenu">
+            <button class="dd-item" data-dl="md-structured">📄 Markdown（结构化）</button>
+            <button class="dd-item" data-dl="json">🗂 JSON</button>
+            <button class="dd-item" data-dl="md-outline">📑 纯文本大纲</button>
+          </div>
+        </div>
+        <button class="btn-icon" id="summaryFullscreenBtn" title="全屏 / 退出全屏（F）" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="fs-enter" style="width:18px;height:18px;stroke:currentColor;"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="fs-exit" style="width:18px;height:18px;stroke:currentColor;display:none;"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+        </button>
+        <button class="btn-icon" id="summaryCloseBtn" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="summary-tabs">
+      <button class="s-tab active" data-tab="structured">📑 结构化视图</button>
+      <button class="s-tab" data-tab="mindmap">🧠 思维导图</button>
+    </div>
+
+    <div class="modal-body" style="padding-top:12px;">
+      <!-- Loading -->
+      <div class="summary-loading hidden" id="summaryLoading">
+        <div class="spinner"></div>
+        <div id="summaryLoadingText">AI 正在阅读转写内容，请稍候…</div>
+      </div>
+
+      <!-- Tab 1: 结构化 -->
+      <div class="summary-pane active" id="pane-structured">
+        <div id="summaryContent" class="summary-content">
+          <div class="empty-state" style="padding:32px;">
+            <p class="es-title">暂无摘要</p>
+            <p class="es-desc">请先对该文件执行"AI 摘要"。<br>摘要内容包含：主题 / 摘要 / 关键观点 / 待办 / 会议决定</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: 思维导图 -->
+      <div class="summary-pane" id="pane-mindmap">
+        <div class="mindmap-toolbar" id="mindmapToolbar">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-ghost" id="mmEditBtn" title="编辑源 Markdown（编辑后点击重新渲染思维导图）">✏️ 编辑大纲</button>
+            <button class="btn btn-sm btn-ghost" id="mmReloadBtn" title="从当前摘要重新生成思维导图">↻ 重建导图</button>
+            <div class="btn-split-group" id="mmDownloadGroup" title="下载思维导图 / Markdown">
+              <button class="btn btn-sm btn-ghost">⬇ 下载</button>
+              <div class="btn-split-menu">
+                <button class="dd-item" data-mm="svg">🖼 SVG 矢量图</button>
+                <button class="dd-item" data-mm="png">🖼 PNG 位图</button>
+                <button class="dd-item" data-mm="md">📄 源 Markdown</button>
+              </div>
+            </div>
+          </div>
+          <div class="muted" style="font-size:12px;">💡 滚轮缩放 · 拖拽平移 · 点击节点展开</div>
+        </div>
+        <div class="mindmap-wrap" id="mindmapWrap">
+          <div id="mindmapEmpty" class="empty-state" style="padding:32px;">
+            <p class="es-title">暂无思维导图</p>
+            <p class="es-desc">生成摘要后，切换到这个标签可以查看交互式思维导图。<br>支持滚轮缩放 / 拖拽平移 / 点击节点展开折叠。</p>
+          </div>
+          <svg id="markmapSvg" style="width:100%;height:100%;display:none;"></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Mindmap Markdown 编辑弹窗 -->
+<div class="modal-overlay hidden" id="mmEditModal">
+  <div class="modal-card modal-xl">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0">✏️ 编辑思维导图大纲</h3>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;">
+          按 Markdown 语法写：# 标题 / ## 一级 / ### 二级 / - 列表项。修改后点「应用并渲染」即可刷新思维导图。
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn btn-sm btn-primary" id="mmEditApplyBtn">✨ 应用并渲染</button>
+        <button class="btn btn-sm btn-ghost" id="mmEditResetBtn" title="从当前摘要恢复">↺ 恢复默认</button>
+        <button class="btn-icon" id="mmEditCloseBtn" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:10px;">
+      <textarea id="mmEditTextarea" style="flex:1;min-height:60vh;font-family:var(--font-mono);font-size:13.5px;line-height:1.65;padding:14px;border-radius:10px;border:1px solid var(--border);outline:none;resize:vertical;background:white;color:var(--fg);" spellcheck="false"></textarea>
+    </div>
+  </div>
+</div>
+
+<!--
+  Markmap 思维导图依赖 —— 只加载一份自包含 bundle：markmap-autoloader。
+  它内部打包了 d3 + markmap-lib(Transformer) + markmap-view(Markmap 渲染)，
+  导出到 window.markmap = { Markmap, Transformer, loadCSS, loadJS, ... }。
+  因此不再需要引入单独的 d3.js / markmap-lib / markmap-view（避免路径版本组合爆炸导致的 404）。
+  加载顺序：本地 /vendor/ → 4 个 CDN 镜像 × 2 个版本 × 2 种常见文件路径。
+-->
+<script src="/vendor/markmap-autoloader.js"></script>
+<script>
+  (function(){
+    function ok(){
+      var m=window.markmap;
+      // markmap-autoloader 会同时导出 Markmap 渲染器 与 Transformer 解析器
+      return m && typeof m.Markmap==='function' && typeof m.Transformer==='function';
+    }
+    function add(u){document.write('<script src="'+u+'"><\/script>');}
+    if(ok())return;
+    var cdns=[
+      'https://cdn.jsdmirror.com/npm/markmap-autoloader@{{v}}',
+      'https://cdn.jsdelivr.net/npm/markmap-autoloader@{{v}}',
+      'https://unpkg.com/markmap-autoloader@{{v}}',
+      'https://registry.npmmirror.com/markmap-autoloader/{{v}}/files',
+    ];
+    // 不同版本在 npm 上发布的主文件名不一致，这里都试一下
+    var files=['/dist/autoloader.js','/dist/index.umd.js','/dist/index.js'];
+    var vers=['0.18.12','0.17.6','0.16.3'];
+    for(var vi=0;vi<vers.length&&!ok();vi++){
+      for(var ci=0;ci<cdns.length&&!ok();ci++){
+        var base=cdns[ci].replace(/\{\{v\}\}/g,vers[vi]);
+        for(var fi=0;fi<files.length&&!ok();fi++){
+          add(base+files[fi]);
+        }
+      }
+    }
+  })();
+</script>
+
+<script src="app.js?v=20260815-autoloader"></script>
+</body>
+</html>

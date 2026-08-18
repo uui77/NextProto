@@ -1,0 +1,184 @@
+/* pages/scan/scan.wxss */
+.container { padding-bottom: 40rpx; }
+
+.header {
+  text-align: center;
+  padding: 60rpx 0 40rpx;
+}
+.title {
+  display: block;
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #fff;
+}
+.subtitle {
+  display: block;
+  font-size: 26rpx;
+  color: var(--text-muted);
+  margin-top: 8rpx;
+}
+
+/* 扫描区 */
+.scan-section { padding: 32rpx 24rpx; }
+.scan-btn {
+  width: 100%;
+  height: 96rpx;
+  font-size: 32rpx;
+}
+.scan-btn.scanning { opacity: 0.6; }
+.compat-row {
+  display: flex;
+  align-items: center;
+  margin-top: 20rpx;
+  gap: 12rpx;
+}
+.compat-label {
+  font-size: 24rpx;
+  color: var(--text-muted);
+}
+
+/* 设备列表 */
+.section-title {
+  display: block;
+  font-size: 28rpx;
+  color: var(--text-muted);
+  margin-bottom: 16rpx;
+}
+.device-list { }
+.device-item {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid var(--border);
+}
+.device-item:last-child { border-bottom: none; }
+.device-item:active { opacity: 0.6; }
+.device-icon { font-size: 40rpx; margin-right: 20rpx; }
+.device-info { flex: 1; }
+.device-name {
+  display: block;
+  font-size: 30rpx;
+  color: #fff;
+  font-weight: 500;
+}
+.device-id {
+  display: block;
+  font-size: 22rpx;
+  color: var(--text-muted);
+  margin-top: 4rpx;
+}
+.device-rssi {
+  font-size: 22rpx;
+  color: var(--accent);
+}
+
+/* 连接中 */
+.connecting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40rpx 0;
+  gap: 20rpx;
+  color: var(--text-muted);
+}
+.loading-spinner {
+  width: 60rpx;
+  height: 60rpx;
+  border: 4rpx solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 已连接 */
+.connected-card { padding: 28rpx 24rpx; }
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 24rpx;
+}
+.status-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+}
+.status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 12rpx var(--success);
+}
+.status-text {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.info-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.info-item {
+  flex: 1;
+  min-width: 200rpx;
+  background: var(--bg-card-light);
+  border-radius: 12rpx;
+  padding: 20rpx;
+}
+.info-label {
+  display: block;
+  font-size: 22rpx;
+  color: var(--text-muted);
+  margin-bottom: 8rpx;
+}
+.info-value {
+  display: block;
+  font-size: 28rpx;
+  color: #fff;
+  font-weight: 500;
+}
+.refresh-btn {
+  margin-top: 20rpx;
+  width: 100%;
+}
+
+/* 功能入口 */
+.action-grid {
+  display: flex;
+  gap: 16rpx;
+  margin: 16rpx;
+}
+.action-card {
+  flex: 1;
+  background: var(--bg-card);
+  border-radius: 16rpx;
+  padding: 36rpx 20rpx;
+  text-align: center;
+  box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.3);
+}
+.action-card:active { transform: scale(0.96); }
+.action-icon { font-size: 56rpx; }
+.action-title {
+  display: block;
+  font-size: 30rpx;
+  color: #fff;
+  font-weight: 600;
+  margin-top: 12rpx;
+}
+.action-desc {
+  display: block;
+  font-size: 22rpx;
+  color: var(--text-muted);
+  margin-top: 4rpx;
+}
+
+.disconnect-btn {
+  margin: 24rpx 16rpx;
+}
+
+/* 日志 */
+.log-card { padding: 20rpx 24rpx; }
+.log-scroll {
+  max-height: 400rpx;
+}

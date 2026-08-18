@@ -1,0 +1,100 @@
+<!--pages/transcribe/transcribe.wxml— 实时转写 -->
+<view class="container">
+  <!-- 实时录音模式 -->
+  <block wx:if="{{mode === 'realtime'}}">
+    <view class="card record-card">
+      <!-- 录音状态 -->
+      <view class="record-status">
+        <view class="record-indicator {{recording ? (paused ? 'paused' : 'recording') : 'idle'}}">
+          <view class="indicator-dot" wx:if="{{recording && !paused}}"></view>
+          <text>{{recording ? (paused ? '已暂停' : '录音中') : '待机'}}</text>
+        </view>
+        <text class="record-time">{{formatTime(elapsedSec)}}</text>
+      </view>
+
+      <!-- 录音信息 -->
+      <view class="record-info" wx:if="{{recording}}">
+        <text class="info-line">📦 {{rtFilename}}</text>
+        <text class="info-line">📊 {{packetCount}} 个音频帧</text>
+      </view>
+
+      <!-- 控制按钮 -->
+      <view class="record-controls">
+        <button class="btn btn-primary record-btn" bindtap="startRecording"
+          disabled="{{recording}}">🎙️ 开始录音</button>
+        <button class="btn btn-ghost record-btn" bindtap="pauseRecording"
+          disabled="{{!recording}}">{{paused ? '▶ 继续' : '⏸ 暂停'}}</button>
+        <button class="btn btn-danger record-btn" bindtap="stopRecording"
+          disabled="{{!recording}}">⏹ 停止</button>
+      </view>
+    </view>
+  </block>
+
+  <!-- 文件转写模式 -->
+  <block wx:if="{{mode === 'file'}}">
+    <view class="card file-transcribe-card">
+      <view class="file-info-row">
+        <text class="file-icon">📄</text>
+        <view class="file-detail">
+          <text class="file-name-text">{{fileName}}</text>
+          <text class="file-path-text">{{filePath}}</text>
+        </view>
+      </view>
+      <button class="btn btn-accent transcribe-btn" bindtap="transcribeFile"
+        disabled="{{transcribing}}">
+        {{transcribing ? transcribeProgress : '🚀 开始转写'}}
+      </button>
+    </view>
+  </block>
+
+  <!-- 转写结果 -->
+  <view class="card result-card" wx:if="{{transcript}}">
+    <view class="result-header">
+      <text class="result-title">📝 转写结果</text>
+      <button class="btn btn-ghost copy-btn" size="mini" bindtap="copyTranscript">复制</button>
+    </view>
+    <scroll-view scroll-y class="result-scroll">
+      <text class="result-text">{{transcript}}</text>
+    </scroll-view>
+  </view>
+
+  <!-- AI 摘要 -->
+  <view class="card result-card" wx:if="{{transcript}}">
+    <view class="result-header">
+      <text class="result-title">🤖 AI 摘要</text>
+      <button class="btn btn-ghost copy-btn" size="mini" bindtap="copySummary"
+        disabled="{{!summary}}">复制</button>
+    </view>
+    <view wx:if="{{summary}}" class="result-scroll">
+      <text class="result-text">{{summary}}</text>
+    </view>
+    <view wx:else class="summary-action">
+      <button class="btn btn-primary summary-btn" bindtap="generateSummary"
+        disabled="{{summarizing}}">{{summarizing ? '生成中...' : '生成 AI 摘要'}}</button>
+    </view>
+  </view>
+
+  <!-- API 配置 -->
+  <view class="config-toggle" bindtap="toggleConfig">
+    <text>⚙️ API 配置</text>
+    <text class="toggle-arrow">{{showConfig ? '▲' : '▼'}}</text>
+  </view>
+
+  <view class="card config-card" wx:if="{{showConfig}}">
+    <view class="config-section">
+      <text class="config-label">语音识别 ASR（阿里云百炼）</text>
+      <input class="config-input" type="text" password
+        placeholder="输入 DashScope API Key"
+        value="{{asrApiKey}}" bindinput="onAsrKeyInput" />
+      <text class="config-hint">前往 dashscope.aliyuncs.com 获取 Key</text>
+    </view>
+    <view class="config-section">
+      <text class="config-label">AI 摘要 LLM（DeepSeek）</text>
+      <input class="config-input" type="text" password
+        placeholder="输入 DeepSeek API Key"
+        value="{{llmApiKey}}" bindinput="onLlmKeyInput" />
+      <text class="config-hint">前往 platform.deepseek.com 获取 Key</text>
+    </view>
+    <button class="btn btn-accent save-config-btn" bindtap="saveConfig">保存配置</button>
+  </view>
+</view>

@@ -1,0 +1,116 @@
+/* pages/files/files.wxss */
+.container { padding-bottom: 40rpx; }
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx;
+}
+.title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #fff;
+}
+.refresh-btn { min-width: 120rpx; }
+
+/* 下载中 */
+.downloading-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  color: var(--accent);
+  font-size: 26rpx;
+}
+.loading-spinner-sm {
+  width: 32rpx;
+  height: 32rpx;
+  border: 3rpx solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 文件列表 */
+.file-list-card { padding: 8rpx 24rpx; }
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid var(--border);
+}
+.file-item:last-child { border-bottom: none; }
+.file-info { flex: 1; min-width: 0; }
+.file-name {
+  display: block;
+  font-size: 28rpx;
+  color: #fff;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-meta {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 8rpx;
+}
+.meta-tag {
+  font-size: 22rpx;
+  color: var(--text-muted);
+  background: var(--bg-card-light);
+  padding: 2rpx 12rpx;
+  border-radius: 6rpx;
+}
+.file-actions {
+  display: flex;
+  gap: 8rpx;
+  flex-shrink: 0;
+}
+.action-btn {
+  min-width: 80rpx;
+  height: 60rpx;
+  font-size: 24rpx;
+  padding: 0 16rpx;
+}
+
+/* 空状态 */
+.empty-card { text-align: center; padding: 80rpx 24rpx; }
+.empty-text {
+  color: var(--text-muted);
+  font-size: 28rpx;
+}
+
+/* 已下载 */
+.section-title {
+  display: block;
+  font-size: 26rpx;
+  color: var(--text-muted);
+  margin-bottom: 16rpx;
+}
+.downloaded-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--border);
+}
+.downloaded-item:last-child { border-bottom: none; }
+.dl-info { flex: 1; min-width: 0; }
+.dl-info:active { opacity: 0.6; }
+.dl-name {
+  display: block;
+  font-size: 26rpx;
+  color: var(--primary-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-meta {
+  display: block;
+  font-size: 22rpx;
+  color: var(--text-muted);
+  margin-top: 4rpx;
+}

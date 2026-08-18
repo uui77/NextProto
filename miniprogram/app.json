@@ -1,0 +1,23 @@
+{
+  "pages": [
+    "pages/scan/scan",
+    "pages/files/files",
+    "pages/transcribe/transcribe"
+  ],
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#1a1a2e",
+    "navigationBarTitleText": "AI录音卡",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0f0f1e"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents",
+  "permission": {
+    "scope.bluetooth": { "desc": "用于连接AI录音卡设备" },
+    "scope.userLocation": { "desc": "蓝牙扫描需要位置权限" }
+  },
+  "requiredPrivateInfos": ["getLocation"],
+  "requiredBackgroundModes": ["audio"]
+}

@@ -1,0 +1,94 @@
+/* AI录音卡 全局样式 */
+page {
+  background: #0f0f1e;
+  color: #e0e0e0;
+  font-size: 28rpx;
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  min-height: 100vh;
+}
+
+/* 品牌主色 */
+:root {
+  --primary: #6c5ce7;
+  --primary-light: #a29bfe;
+  --accent: #00cec9;
+  --danger: #e74c3c;
+  --success: #00b894;
+  --warn: #fdcb6e;
+  --bg-card: #1a1a2e;
+  --bg-card-light: #252540;
+  --text-main: #e0e0e0;
+  --text-muted: #636e72;
+  --border: #2d2d44;
+}
+
+/* 通用卡片 */
+.card {
+  background: var(--bg-card);
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin: 16rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.3);
+}
+
+/* 通用按钮 */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80rpx;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+.btn:active { opacity: 0.7; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-accent { background: var(--accent); color: #fff; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-ghost { background: transparent; border: 1rpx solid var(--border); color: var(--text-main); }
+.btn[disabled] { opacity: 0.4; }
+
+/* 状态标签 */
+.tag {
+  display: inline-block;
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+}
+.tag-success { background: rgba(0,184,148,0.15); color: var(--success); }
+.tag-warn { background: rgba(253,203,110,0.15); color: var(--warn); }
+.tag-danger { background: rgba(231,76,60,0.15); color: var(--danger); }
+
+/* 列表行 */
+.list-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 24rpx;
+  border-bottom: 1rpx solid var(--border);
+}
+.list-item:last-child { border-bottom: none; }
+
+/* 空状态 */
+.empty {
+  text-align: center;
+  padding: 80rpx 0;
+  color: var(--text-muted);
+  font-size: 26rpx;
+}
+
+/* 日志区 */
+.log-area {
+  background: #0a0a1a;
+  border-radius: 12rpx;
+  padding: 16rpx;
+  max-height: 400rpx;
+  overflow-y: auto;
+  font-size: 22rpx;
+  font-family: "Courier New", monospace;
+  line-height: 1.6;
+}
+.log-line { word-break: break-all; }
+.log-INFO { color: #74b9ff; }
+.log-WARN { color: var(--warn); }
+.log-ERR { color: var(--danger); }

@@ -1,0 +1,54 @@
+<!--pages/files/files.wxml— 文件列表 -->
+<view class="container">
+  <!-- 头部 -->
+  <view class="header">
+    <text class="title">📁 录音文件</text>
+    <button class="btn btn-ghost refresh-btn" size="mini" bindtap="loadFiles"
+      disabled="{{loading}}">{{loading ? '加载中...' : '刷新'}}</button>
+  </view>
+
+  <!-- 下载进度 -->
+  <view class="card" wx:if="{{downloading}}">
+    <view class="downloading-row">
+      <view class="loading-spinner-sm"></view>
+      <text>{{downloadProgress}}</text>
+    </view>
+  </view>
+
+  <!-- 文件列表 -->
+  <view class="card file-list-card" wx:if="{{files.length > 0}}">
+    <view class="file-item" wx:for="{{files}}" wx:key="name" wx:for-index="idx">
+      <view class="file-info">
+        <text class="file-name">{{item.name}}</text>
+        <view class="file-meta">
+          <text class="meta-tag">{{item.duration}}s</text>
+          <text class="meta-tag" wx:if="{{item.size > 0}}">{{item.size > 1048576 ? (item.size / 1048576).toFixed(1) + ' MB' : (item.size / 1024).toFixed(0) + ' KB'}}</text>
+        </view>
+      </view>
+      <view class="file-actions">
+        <button class="btn btn-accent action-btn" size="mini"
+          data-index="{{idx}}" bindtap="onDownload" disabled="{{downloading}}">下载</button>
+        <button class="btn btn-danger action-btn" size="mini"
+          data-index="{{idx}}" bindtap="onDelete">删除</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="card empty-card" wx:if="{{files.length === 0 && !loading}}">
+    <text class="empty-text">录音笔中暂无录音文件</text>
+  </view>
+
+  <!-- 已下载文件 -->
+  <view class="card" wx:if="{{downloadedFiles.length > 0}}">
+    <text class="section-title">📥 已下载（{{downloadedFiles.length}}）</text>
+    <view class="downloaded-item" wx:for="{{downloadedFiles}}" wx:key="name" wx:for-index="idx">
+      <view class="dl-info" data-index="{{idx}}" bindtap="onPlayDownloaded">
+        <text class="dl-name">{{item.name}}</text>
+        <text class="dl-meta">{{item.size > 1048576 ? (item.size / 1048576).toFixed(1) + ' MB' : (item.size / 1024).toFixed(0) + ' KB'}} · {{item.isWav ? 'WAV' : 'OPUS'}}</text>
+      </view>
+      <button class="btn btn-ghost action-btn" size="mini"
+        data-index="{{idx}}" bindtap="onShareDownloaded">分享</button>
+    </view>
+  </view>
+</view>
