@@ -8,11 +8,18 @@
 
 ---
 
+<div align="center">
+  <img src="https://img.shields.io/badge/ENGLISH-Current-Language-blue?style=for-the-badge" alt="English" width="150">
+  &nbsp;&nbsp;
+  <a href="README.zh.md"><img src="https://img.shields.io/badge/中文-查看中文版-green?style=for-the-badge" alt="中文"></a>
+</div>
+
+---
+
 ## Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
-- [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Version Comparison](#version-comparison)
 - [BLE Communication Protocol](#ble-communication-protocol)
@@ -25,7 +32,7 @@
   - [AI Summary Configuration](#ai-summary-configuration)
   - [Volume Gain](#volume-gain)
   - [Ogg Opus Packaging](#ogg-opus-packaging)
-  - [Packaging with PyInstaller](#packaging-with-pyinstaller)
+  - [PyInstaller Build](#pyinstaller-build)
 - [WeChat Mini Program](#wechat-mini-program)
   - [Setup](#setup)
   - [API Configuration](#api-configuration)
@@ -34,7 +41,6 @@
 - [Testing](#testing)
 - [FAQ](#faq)
 - [References](#references)
-- [中文文档](#中文文档)
 
 ---
 
@@ -61,57 +67,12 @@ Both versions have been verified on real hardware (QS668): scan → connect → 
 | Ogg Opus | Real-time 40B raw Opus packets → valid Ogg/Opus container (playable in VLC/ffprobe) |
 | Debug | Read-only smoke test, raw command send, key event monitoring |
 
-## Architecture
-
-```
-┌──────────────────────────────┐
-│       User Interface         │
-├──────────────┬───────────────┤
-│  PC Desktop  │  WeChat Mini  │
-│  (Python     │  Program      │
-│   + Web UI)  │  (WXML/WXSS)  │
-└──────┬───────┴───────┬──────┘
-       │               │
-       │   Protocol Layer (shared logic)
-       │   ┌──────────────────────┐
-       ├──→│  Frame build/parse   │
-       ├──→│  CRC-16/XMODEM       │
-       ├──→│  Stream reassembly   │
-       ├──→│  Field decode        │
-       ├──→│  Ogg Opus writer     │
-       │   └──────────────────────┘
-       │
-       │   BLE Transport
-       │   ┌──────────────────────┐
-       ├──→│  bleak (desktop)      │
-       └──→│  wx BLE API (mini)    │
-           └──────────┬───────────┘
-                      │ GATT
-           ┌──────────▼───────────┐
-           │   QS668 Recording Pen │
-           │   Service: 0xAE20     │
-           │   Write:   0xAE21     │
-           │   Notify:  0xAE22/23  │
-           └──────────────────────┘
-```
-
-ASR and AI Summary services:
-
-```
-Desktop:  Local ONNX model (SenseVoice/Paraformer) → 0 cost
-          DeepSeek API or local Ollama → AI summary
-
-Mini Program: Alibaba Cloud DashScope API → ASR (¥0.288/hr)
-              DeepSeek API → AI summary (~¥0.02/session)
-```
-
 ## Project Structure
 
 ```
 NextProto/
 ├── desktop/                          # PC Desktop Version (Python)
 │   ├── recorder/
-│   │   ├── __init__.py               # Package init, version
 │   │   ├── ble.py                    # BLE transport (bleak wrapper, MTU, Notify)
 │   │   ├── protocol.py               # Protocol: frame build/parse, CRC, OggOpus writer
 │   │   ├── crc16.py                  # CRC-16/XMODEM implementation
@@ -120,41 +81,25 @@ NextProto/
 │   │   ├── llm.py                    # AI summary (DeepSeek/Ollama, structured+mindmap)
 │   │   ├── web.py                    # Web server (FastAPI + WebSocket)
 │   │   └── cli.py                    # CLI REPL
-│   ├── web/                          # Frontend static files (no build toolchain)
-│   │   ├── index.html                # Main page
-│   │   ├── app.js                    # Frontend logic
-│   │   ├── style.css                 # Styles
-│   │   └── vendor/                   # Third-party libs (markmap, toml)
+│   ├── web/                          # Frontend static files
 │   ├── tests/                        # Unit tests (40 tests, no hardware needed)
-│   ├── tools/                        # Utility scripts
-│   ├── docs/
-│   │   └── 协议.md                    # Protocol documentation (Chinese)
-│   ├── main.py                       # Entry point (REPL or --web)
-│   ├── build.spec                    # PyInstaller config
-│   ├── build.bat                     # Windows build script
-│   ├── requirements.txt              # Core deps (bleak)
-│   ├── requirements-asr.txt          # ASR deps (funasr/torch)
-│   └── requirements-web.txt         # Web deps (fastapi/uvicorn)
-│
+│   ├── main.py                       # Entry point
+│   ├── build.spec / build.bat        # PyInstaller config
+│   └── requirements*.txt             # Dependencies
 ├── miniprogram/                      # WeChat Mini Program Version
 │   ├── utils/
 │   │   ├── crc16.js                  # CRC-16/XMODEM (ported from Python)
-│   │   ├── protocol.js              # Protocol: constants, frame, parse, decode
-│   │   ├── ble.js                   # BLE transport (wx BLE API wrapper)
-│   │   └── recorder.js             # High-level device logic
+│   │   ├── protocol.js               # Protocol: constants, frame, parse, decode
+│   │   ├── ble.js                    # BLE transport (wx BLE API wrapper)
+│   │   └── recorder.js               # High-level device logic
 │   ├── pages/
-│   │   ├── scan/                    # Scan & connect page
-│   │   ├── files/                   # File management page
-│   │   └── transcribe/             # Real-time transcribe & AI summary page
-│   ├── app.js                       # App entry (global state, API config)
-│   ├── app.json                     # Routes & permissions
-│   ├── app.wxss                     # Global styles (dark theme)
-│   ├── project.config.json          # DevTools config
-│   └── sitemap.json
-│
-├── README.md                         # This file
-├── LICENSE                           # MIT
-└── .gitignore
+│   │   ├── scan/                     # Scan & connect page
+│   │   ├── files/                    # File management page
+│   │   └── transcribe/               # Real-time transcribe & AI summary page
+│   └── app.js                        # App entry
+├── README.md                         # This file (English)
+├── README.zh.md                      # Chinese version
+└── LICENSE                           # MIT
 ```
 
 ## Version Comparison
@@ -283,7 +228,7 @@ record> connect 0         # Connect to first device
 record> smoke             # Read-only inspection (safe, no writes)
 record> list              # Fetch file list
 record> download 0        # Download as WAV (auto RIFF validation)
-record> transcribe 0     # Speech-to-text (auto-downloads if needed)
+record> transcribe 0      # Speech-to-text (auto-downloads if needed)
 ```
 
 ### CLI Commands
@@ -406,7 +351,7 @@ POST /api/convert_raw_opus
 {"name": "recording.opus", "replace": false}
 ```
 
-### Packaging with PyInstaller
+### PyInstaller Build
 
 ```bash
 cd desktop
@@ -501,132 +446,6 @@ python -m unittest discover tests -v
 - **ASR models**: [ModelScope FunASR](https://github.com/modelscope/FunASR) — SenseVoiceSmall / Paraformer
 - **BLE library**: [bleak](https://github.com/hbldh/bleak) — Bluetooth Low Energy platform-agnostic
 - **WeChat Mini Program**: [Official docs](https://developers.weixin.qq.com/miniprogram/dev/framework/)
-
----
-
-## 中文文档
-
-> 蓝牙连接 QS668 AI 录音笔，支持文件管理、实时录音、语音转写（ASR）、AI 摘要生成。提供 PC 桌面版和微信小程序版。
-
-### 功能一览
-
-| 分类 | 功能 |
-|---|---|
-| 设备信息 | 电量 / 存储容量 / 固件版本 / 授权码 / 时间同步（连接后自动） |
-| 文件操作 | 文件列表、WAV/Opus 下载（候选名自动回退）、断点续传、分段下载、删除（二次确认） |
-| 实时录音 | 实时音频推流（Opus 码流落盘）、暂停 / 继续 / 停止 |
-| 录音控制 | 远程开始 / 保存 / 暂停 / 继续、状态 / 时长 / 文件名查询、增益查询与设置 |
-| 语音转写 | 桌面版：本地离线（SenseVoiceSmall + VAD）/ 小程序：云端 API（Paraformer） |
-| AI 摘要 | DeepSeek / 本地 Ollama 生成结构化会议纪要，附思维导图（桌面版） |
-| 音量增益 | 自动峰值归一化 / 2x/3x/5x 手动增益 / 关闭 — 提升低音量录音的转写准确率 |
-| Ogg Opus | 实时 40B 裸 Opus 码流 → 合法 Ogg/Opus 容器（VLC/ffprobe 可播放） |
-| 调试 | 只读安全巡检、任意命令封包直发、机身按键事件监听 |
-
-### 两个版本对比
-
-| 特性 | PC 桌面版 (`desktop/`) | 微信小程序 (`miniprogram/`) |
-|---|---|---|
-| 运行平台 | Windows / macOS | 微信（手机） |
-| 蓝牙 | Windows BLE / bleak | 微信 BLE API |
-| ASR 转写 | **本地 ONNX**（SenseVoice/Paraformer） | **云端 API**（阿里云百炼） |
-| AI 摘要 | DeepSeek API / 本地 Ollama | DeepSeek API |
-| 思维导图 | ✅ markmap | ❌ |
-| 实时录音 | ✅ Ogg Opus 流式写入 | ✅ Opus 码流接收 |
-| 文件下载 | ✅ WAV/Opus 自动回退 | ✅ WAV/Opus 自动回退 |
-| 音量增益 | ✅ 自动/2x/3x/5x/关闭 | ❌（服务端处理） |
-| 裸 Opus 修复 | ✅ `opus-fix` 命令 + API | ❌ |
-| 打包分发 | PyInstaller exe（双击即用） | 扫码即用 |
-| 月费 | 0 元（本地模型） | ~10 元（云 API） |
-| 语言 | Python 3.10+ / HTML / JS | JavaScript（WXML/WXSS） |
-
-### BLE 通讯协议
-
-基于 QS668 BLE 通讯协议 V1.0（2026-07-10），桌面版和小程序版共用同一协议层。
-
-**GATT 服务与特征：**
-
-| 特征 | UUID | 方向 | 用途 |
-|---|---|---|---|
-| Service | `0000AE20-...-00805F9B34FB` | — | 主 BLE 服务 |
-| 写特征 | `0000AE21-...-00805F9B34FB` | App → 设备 | 命令写入（无应答） |
-| 通知 1 | `0000AE22-...-00805F9B34FB` | 设备 → App | 控制/音频/文件响应 |
-| 通知 2 | `0000AE23-...-00805F9B34FB` | 设备 → App | 按键事件通知 |
-
-**帧格式：**
-
-```
-┌────────┬─────┬────────────┬──────────┬───────────────────────┐
-│ MAGIC  │ SEQ │  CRC16    │   LEN    │        DATA           │
-│ 0x5A   │ 1B  │ 2B (LE)   │ 2B (LE)  │  TYPE+CMD+PARAMS      │
-└────────┴─────┴────────────┴──────────┴───────────────────────┘
-```
-
-- CRC-16/XMODEM（Poly=0x1021, Init=0x0000），计算范围 = LEN 原始 2 字节 + DATA
-- LEN > 8192 视为假帧头
-
-**命令类型：**
-
-| TYPE | 分类 | 关键命令 |
-|---|---|---|
-| 0 | 控制 | 时间同步(0x00)、电量(0x01)、容量(0x02)、固件(0x03)、授权码(0x0D) |
-| 1 | 实时音频 | 开始(0x00)、音频数据(0x01)、停止(0x02)、暂停(0x03)、状态(0x04) |
-| 2 | 文件 | 列表(0x00)、导入(0x01)、数据请求(0x02)、结束(0x07)、删除(0x12) |
-| 3 | 按键/录音 | 录音开始(0x01)、保存(0x03)、暂停(0x04)、继续(0x05)、状态(0x08)、增益(0x1C) |
-
-### PC 桌面版
-
-**安装：**
-```bash
-cd desktop
-pip install -r requirements.txt          # 核心功能
-pip install -r requirements-asr.txt      # 语音转写（可选）
-pip install -r requirements-web.txt      # Web 界面（可选）
-```
-
-**启动：**
-```bash
-python main.py              # CLI REPL 模式
-python main.py --web        # Web 界面模式（http://127.0.0.1:8000）
-python main.py -v           # 调试日志
-```
-
-**典型流程：**
-```
-record> scan              # 扫描（找不到试 scan compat）
-record> connect 0         # 连接
-record> smoke             # 只读巡检
-record> list              # 文件列表
-record> download 0        # 下载 WAV
-record> transcribe 0      # 语音转文字
-```
-
-**ASR 模型：** 本地 ONNX 运行，无需 API Key。默认 SenseVoiceSmall（242MB），支持中/日/粤/英/韩。
-
-**AI 摘要：** 支持 DeepSeek API、API 中转站、本地 Ollama 三种方式，Key 存于 `downloads/.llm_config.json`。
-
-**音量增益：** 转写前预处理，支持自动峰值归一化（默认）、2x/3x/5x 固定增益、关闭。
-
-**Ogg Opus 修复：** 实时录音的 40B 裸 Opus 码流自动包装为合法 Ogg/Opus 容器；历史文件可用 `opus-fix` 命令转换。
-
-**打包：** `build.bat` → PyInstaller 生成 exe，ffmpeg 随程序分发。
-
-### 微信小程序
-
-1. 下载[微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html)
-2. 导入 `miniprogram/` 目录
-3. 填入 AppID
-4. 真机预览，扫码连接录音笔
-5. 在转写页配置阿里云百炼 API Key 和 DeepSeek API Key
-
-**月费估算：** 每天录音 1 小时，ASR ~9 元 + AI 摘要 ~1 元 ≈ **10 元/月**
-
-### 协议参考
-
-- **协议源项目**：[lomehong/record](https://github.com/lomehong/record/tree/master/) — QS668 BLE 通讯协议 V1.0 实现
-- **厂家资料**：[nextproto.top/materials](https://nextproto.top/materials)（需凭证编号）
-- **厂家测试页**：[nextproto.top/qs668/](https://nextproto.top/qs668/)
-- **ASR 模型**：[ModelScope FunASR](https://github.com/modelscope/FunASR)
-- **BLE 库**：[bleak](https://github.com/hbldh/bleak)
 
 ---
 
