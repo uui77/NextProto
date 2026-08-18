@@ -1,6 +1,9 @@
 {
   "description": "AI录音卡 QS668 微信小程序",
-  "packOptions": { "ignore": [], "include": [] },
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
   "setting": {
     "bundle": false,
     "userConfirmedBundleSwitch": false,
@@ -8,11 +11,11 @@
     "scopeDataCheck": false,
     "coverView": true,
     "es6": true,
-    "postcss": true,
+    "postcss": false,
     "compileHotReLoad": true,
     "lazyloadPlaceholderEnable": false,
     "preloadBackgroundData": false,
-    "minified": true,
+    "minified": false,
     "autoAudits": false,
     "newFeature": false,
     "uglifyFileName": false,
@@ -33,11 +36,24 @@
       "ignore": [],
       "disablePlugins": [],
       "outputPath": ""
-    }
+    },
+    "compileWorklet": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": false,
+    "minifyWXML": false,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true,
+    "ignoreUploadUnusedFiles": false
   },
   "compileType": "miniprogram",
   "libVersion": "3.5.0",
-  "appid": "",
+  "appid": "wx598ab18bc30c209a",
   "projectname": "ai-record-card",
-  "condition": {}
+  "condition": {},
+  "simulatorPluginLibVersion": {},
+  "editorSetting": {}
 }

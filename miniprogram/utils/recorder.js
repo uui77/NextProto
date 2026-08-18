@@ -3,8 +3,8 @@
 const P = require('./protocol.js');
 const { BleTransport } = require('./ble.js');
 
-const CMD_TIMEOUT = 5000;        // 普通请求应答超时
-const LIST_IDLE_TIMEOUT = 1200;  // 列表最后一帧后空闲收尾
+const CMD_TIMEOUT = 5000;
+const LIST_IDLE_TIMEOUT = 1200;
 const DOWNLOAD_IDLE_TIMEOUT = 12000;
 
 class RecorderError extends Error {
@@ -15,20 +15,19 @@ class Recorder {
   constructor() {
     this.transport = new BleTransport();
     this._seq = new P.SeqGenerator();
-    this._pendingReq = null;  // { type, cmd, resolve, reject, timer }
+    // (type, cmd) → { resolve, reject, timer }
+    this._waiters = {};
     this._fileList = [];
     this._listTimer = null;
-    // 下载会话
-    this._download = null;    // { name, data:[], timer, resolve, reject }
-    // 实时音频
-    this._rt = null;          // { filename, packets, received, audioChunks:[] }
-    this.onLog = null;        // (level, msg) => void
-    this.onRealtime = null;   // (event, payload) => void
-    this.onDownloadProgress = null; // (received, total) => void
+    this._listResolve = null;
+    this._download = null;
+    this._rt = null;
+    this.onLog = null;
+    this.onRealtime = null;
+    this.onDownloadProgress = null;
   }
 
   init() {
-    // 帧分发
     this.transport.onFrame = (frame, source) => this._handleFrame(frame, source);
     this.transport.onDisconnect = () => {
       this._failAllPending('设备断开');
@@ -43,31 +42,35 @@ class Recorder {
     if (this.onLog) this.onLog(level, msg);
   }
 
+  _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   // ============================================================ 发送命令
   async _sendCommand(type, cmd, params = null, expectCmd = null, timeout = CMD_TIMEOUT) {
     if (!this.isConnected) throw new RecorderError('设备未连接');
     const seq = this._seq.next();
     const frame = P.buildCommand(seq, type, cmd, params);
-    // 设置期望应答
     const expectType = type;
     const expectC = expectCmd !== null ? expectCmd : cmd;
+    const key = `${expectType}_${expectC}`;
+    this._log('DEBUG', `发送命令 type=${expectType} cmd=${expectC} seq=${seq}`);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (this._pendingReq && this._pendingReq.seq === seq) {
-          this._pendingReq = null;
-          reject(new RecorderError('等待设备应答超时'));
+        if (this._waiters[key]) {
+          delete this._waiters[key];
+          reject(new RecorderError(`等待应答超时 type=${expectType} cmd=${expectC}`));
         }
       }, timeout);
-      this._pendingReq = { seq, type: expectType, cmd: expectC, resolve, reject, timer };
+      this._waiters[key] = { seq, resolve, reject, timer };
       this.transport.write(frame).catch((err) => {
         clearTimeout(timer);
-        this._pendingReq = null;
+        delete this._waiters[key];
         reject(new RecorderError(`写入失败: ${err.errMsg || err}`));
       });
     });
   }
 
-  /** 发送原始帧（调试用） */
   async sendRaw(type, cmd, params = null) {
     const seq = this._seq.next();
     const frame = P.buildCommand(seq, type, cmd, params);
@@ -77,17 +80,23 @@ class Recorder {
 
   // ============================================================ 帧分发
   _handleFrame(frame, source) {
-    // 优先匹配 pending 请求
-    if (this._pendingReq) {
-      const req = this._pendingReq;
-      // 同 TYPE 且 CMD 匹配（或 ACK）
-      if (frame.type === req.type && (frame.cmd === req.cmd || frame.isAck)) {
-        clearTimeout(req.timer);
-        this._pendingReq = null;
-        req.resolve(frame);
-        return;
-      }
+    // 优先匹配 pending 请求（与 Python 版一致）
+    const key = `${frame.type}_${frame.cmd}`;
+    const waiter = this._waiters[key];
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      delete this._waiters[key];
+      this._log('DEBUG', `应答匹配 type=${frame.type} cmd=${frame.cmd}`);
+      waiter.resolve(frame);
+      return;
     }
+
+    // ACK 帧：长度=1 字节（仅 TYPE），不匹配任何 CMD
+    if (frame.isAck) {
+      this._log('DEBUG', `ACK type=${frame.type}（无等待者，忽略）`);
+      return;
+    }
+
     // 文件列表流
     if (frame.type === P.TYPE_FILE) {
       if (frame.cmd === P.FILE_LIST_DATA) {
@@ -111,24 +120,29 @@ class Recorder {
         return;
       }
     }
+
     // 实时音频流
     if (frame.type === P.TYPE_REALTIME) {
       this._handleRealtimeFrame(frame);
       return;
     }
+
     // 按键事件（AE23）
     if (frame.type === P.TYPE_KEY && source === 'AE23') {
       if (this.onRealtime) this.onRealtime('key', { cmd: frame.cmd, body: frame.body });
       return;
     }
+
+    this._log('DEBUG', `未匹配帧 type=${frame.type} cmd=${frame.cmd} source=${source} len=${frame.data ? frame.data.length : 0}`);
   }
 
   _failAllPending(reason) {
-    if (this._pendingReq) {
-      clearTimeout(this._pendingReq.timer);
-      this._pendingReq.reject(new RecorderError(reason));
-      this._pendingReq = null;
+    for (const key of Object.keys(this._waiters)) {
+      const w = this._waiters[key];
+      clearTimeout(w.timer);
+      w.reject(new RecorderError(reason));
     }
+    this._waiters = {};
     if (this._download) {
       clearTimeout(this._download.timer);
       this._download.reject(new RecorderError(reason));
@@ -165,19 +179,20 @@ class Recorder {
     view.setUint8(4, date.getHours());
     view.setUint8(5, date.getMinutes());
     view.setUint8(6, date.getSeconds());
-    await this._sendCommand(P.TYPE_CONTROL, P.CTRL_SYNC_TIME, params);
+    try {
+      await this._sendCommand(P.TYPE_CONTROL, P.CTRL_SYNC_TIME, params, P.CTRL_SYNC_TIME, 3000);
+    } catch (e) {
+      this._log('WARN', `时间同步: ${e.message || e}`);
+    }
   }
 
   // ============================================================ 文件列表
   async getFileList() {
     this._fileList = [];
-    // 发送 2-0 请求
     const seq = this._seq.next();
     const frame = P.buildCommand(seq, P.TYPE_FILE, P.FILE_LIST_REQ);
-    // 设置空闲收尾定时器
     this._listTimer = setTimeout(() => this._finishList(), LIST_IDLE_TIMEOUT);
     await this.transport.write(frame);
-    // 等待列表完成（由 _finishList 的 promise 或超时触发）
     return new Promise((resolve) => {
       this._listResolve = resolve;
     });
@@ -187,7 +202,6 @@ class Recorder {
     const entries = P.decodeFileList(frame.body);
     this._fileList.push(...entries);
     this._log('INFO', `列表收到 ${entries.length} 条，累计 ${this._fileList.length} 条`);
-    // 重置空闲定时器
     if (this._listTimer) clearTimeout(this._listTimer);
     this._listTimer = setTimeout(() => this._finishList(), LIST_IDLE_TIMEOUT);
   }
@@ -196,18 +210,14 @@ class Recorder {
     if (this._listTimer) { clearTimeout(this._listTimer); this._listTimer = null; }
     if (this._listResolve) {
       const list = [...this._fileList];
+      const resolveFn = this._listResolve;
       this._listResolve = null;
       this._log('INFO', `列表完成：共 ${list.length} 条`);
-      Promise.resolve(list);
+      resolveFn(list);
     }
   }
 
   // ============================================================ 文件下载
-  /**
-   * 下载文件。优先请求 .wav，失败换 .opus。
-   * @param {P.FileEntry} entry 文件列表条目
-   * @returns {Promise<{name, data:ArrayBuffer, isWav:boolean}>}
-   */
   async download(entry) {
     const candidates = entry.candidateNames();
     for (const name of candidates) {
@@ -229,11 +239,9 @@ class Recorder {
     return new Promise((resolve, reject) => {
       const seq = this._seq.next();
       const frame = P.buildImportRequest(seq, name, 0);
-      // 2-2 必须整帧单写
       this._download = {
         name, data: [], timer: null, resolve, reject,
       };
-      // 空闲超时
       this._download.timer = setTimeout(() => {
         if (this._download) {
           this._log('ERR', `下载超时: ${name}`);
@@ -260,7 +268,6 @@ class Recorder {
 
   _handleDownloadData(frame) {
     if (!this._download) return;
-    // 重置空闲定时器
     clearTimeout(this._download.timer);
     this._download.timer = setTimeout(() => {
       if (this._download) {
@@ -268,8 +275,7 @@ class Recorder {
         this._download = null;
       }
     }, DOWNLOAD_IDLE_TIMEOUT);
-    // 收集数据
-    this._download.data.push(frame.body.slice(0)); // 复制
+    this._download.data.push(frame.body.slice(0));
     const received = this._download.data.reduce((s, a) => s + a.byteLength, 0);
     if (this.onDownloadProgress) this.onDownloadProgress(received, 0);
   }
@@ -281,7 +287,6 @@ class Recorder {
     const dl = this._download;
     this._download = null;
     if (code === P.IMPORT_END_OK) {
-      // 合并所有 chunk
       const total = dl.data.reduce((s, a) => s + a.byteLength, 0);
       const merged = new Uint8Array(total);
       let off = 0;
@@ -301,7 +306,6 @@ class Recorder {
     }
   }
 
-  /** 终止下载 */
   async abortDownload() {
     const seq = this._seq.next();
     const frame = P.buildCommand(seq, P.TYPE_FILE, P.FILE_IMPORT_ABORT);
@@ -316,7 +320,6 @@ class Recorder {
   // ============================================================ 实时音频
   async realtimeStart() {
     const frame = await this._sendCommand(P.TYPE_REALTIME, P.RT_START, null, P.RT_START, CMD_TIMEOUT);
-    // 设备应答中含本次录音文件名
     const name = new TextDecoder('utf-8').decode(frame.body).replace(/\x00+$/, '');
     this._rt = { filename: name, packets: 0, received: 0, audioChunks: [] };
     this._log('INFO', `实时转写开始，文件名: ${name}`);
@@ -346,10 +349,7 @@ class Recorder {
   }
 
   _handleRealtimeFrame(frame) {
-    if (!this._rt) {
-      // 延迟到达的帧，忽略
-      return;
-    }
+    if (!this._rt) return;
     if (frame.cmd === P.RT_AUDIO_DATA) {
       this._rt.received += frame.body.byteLength;
       this._rt.packets++;
@@ -358,20 +358,17 @@ class Recorder {
     } else if (frame.cmd === P.RT_DEV_STATE) {
       const state = frame.body.length > 0 ? frame.body[0] : -1;
       if (state === 2) {
-        // 设备端停止
         this._rt = null;
         this._log('INFO', '设备端停止实时推流');
       }
       if (this.onRealtime) this.onRealtime('state', state);
     } else if (frame.cmd === P.RT_START) {
-      // 设备通告文件名（推流前）
       const name = new TextDecoder('utf-8').decode(frame.body).replace(/\x00+$/, '');
       if (this._rt) this._rt.filename = name;
       if (this.onRealtime) this.onRealtime('filename', name);
     }
   }
 
-  /** 获取实时录音的完整 OPUS 码流（raw 40B packets） */
   getRealtimeRawOpus() {
     if (!this._rt || this._rt.audioChunks.length === 0) return null;
     const total = this._rt.audioChunks.reduce((s, a) => s + a.byteLength, 0);
@@ -422,7 +419,6 @@ class Recorder {
     return frame.body.length > 0 ? frame.body[0] : 0;
   }
 
-  // ============================================================ 删除
   async deleteFile(entry) {
     const params = entry.raw.buffer.slice(entry.raw.byteOffset, entry.raw.byteOffset + P.LIST_ENTRY_LEN);
     const frame = await this._sendCommand(P.TYPE_FILE, P.FILE_DELETE_ONE, params, P.FILE_DELETE_ONE_RESP, 3000);
@@ -435,6 +431,5 @@ class Recorder {
   }
 }
 
-// 单例
 const recorder = new Recorder();
 module.exports = { recorder, Recorder, RecorderError };

@@ -88,38 +88,54 @@ Page({
     this.addLog('INFO', `连接中...`);
     try {
       await recorder.transport.connect(deviceId);
-      this.addLog('INFO', '已连接，同步时间...');
-      // 同步时间
-      try { await recorder.syncTime(); } catch (e) { /* 非致命 */ }
+      this.addLog('INFO', '已连接，等待设备就绪...');
+      // 给设备 500ms 稳定时间
+      await new Promise(r => setTimeout(r, 500));
+      // 同步时间（非致命）
+      try {
+        await recorder.syncTime();
+        this.addLog('INFO', '时间已同步');
+      } catch (e) {
+        this.addLog('WARN', `时间同步: ${e.message || e}`);
+      }
       // 获取设备信息
       await this.fetchDeviceInfo();
       app.globalData.deviceId = deviceId;
       app.globalData.device = device;
       this.setData({ connected: true, connecting: false });
-      this.addLog('INFO', '设备就绪');
+      this.addLog('INFO', '设备就绪，可进入文件管理或实时转写');
     } catch (e) {
       this.setData({ connecting: false });
-      this.addLog('ERR', `连接失败: ${e.errMsg || e}`);
+      this.addLog('ERR', `连接失败: ${e.errMsg || e.message || e}`);
     }
   },
 
   async fetchDeviceInfo() {
+    this.addLog('INFO', '获取电量...');
     try {
       const battery = await recorder.getBattery();
       this.setData({ battery });
       this.addLog('INFO', `电量: ${battery}%`);
-    } catch (e) { this.addLog('WARN', `电量获取失败`); }
+    } catch (e) {
+      this.addLog('WARN', `电量获取失败: ${e.message || e}`);
+    }
+    this.addLog('INFO', '获取容量...');
     try {
       const cap = await recorder.getCapacity();
       const capText = `${(cap.remain/1048576).toFixed(0)} / ${(cap.total/1048576).toFixed(0)} MB`;
       this.setData({ capacity: cap, capacityText: capText });
-      this.addLog('INFO', `容量: ${(cap.remain/1048576).toFixed(1)}MB / ${(cap.total/1048576).toFixed(1)}MB`);
-    } catch (e) { this.addLog('WARN', `容量获取失败`); }
+      this.addLog('INFO', `容量: ${capText}`);
+    } catch (e) {
+      this.addLog('WARN', `容量获取失败: ${e.message || e}`);
+    }
+    this.addLog('INFO', '获取固件版本...');
     try {
       const ver = await recorder.getVersion();
       this.setData({ version: ver });
       this.addLog('INFO', `固件: ${ver}`);
-    } catch (e) { this.addLog('WARN', `版本获取失败`); }
+    } catch (e) {
+      this.addLog('WARN', `版本获取失败: ${e.message || e}`);
+    }
   },
 
   onDisconnect() {
