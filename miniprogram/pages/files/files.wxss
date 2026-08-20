@@ -12,7 +12,30 @@
   font-weight: 600;
   color: #fff;
 }
+.header-btns {
+  display: flex;
+  gap: 12rpx;
+}
 .refresh-btn { min-width: 120rpx; }
+
+/* 调试日志 */
+.debug-card { padding: 16rpx 24rpx; }
+.debug-log {
+  max-height: 400rpx;
+  background: #0a0a0a;
+  border-radius: 8rpx;
+  padding: 16rpx;
+  font-family: monospace;
+}
+.debug-line {
+  font-size: 20rpx;
+  line-height: 1.6;
+  word-break: break-all;
+}
+.debug-line.INFO { color: #4ade80; }
+.debug-line.WARN { color: #fbbf24; }
+.debug-line.ERR { color: #f87171; }
+.debug-line.DEBUG { color: #94a3b8; }
 
 /* 下载中 */
 .downloading-row {
@@ -81,6 +104,13 @@
 .empty-text {
   color: var(--text-muted);
   font-size: 28rpx;
+}
+.empty-hint {
+  display: block;
+  color: var(--text-muted);
+  font-size: 22rpx;
+  margin-top: 16rpx;
+  opacity: 0.7;
 }
 
 /* 已下载 */

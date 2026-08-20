@@ -81,8 +81,14 @@ Page({
   // ============================================================ 实时录音
   async startRecording() {
     if (this.data.recording) return;
+    if (!recorder.isConnected) {
+      wx.showToast({ title: '设备未连接', icon: 'none' });
+      return;
+    }
     try {
+      wx.showLoading({ title: '启动中...', mask: true });
       const name = await recorder.realtimeStart();
+      wx.hideLoading();
       this.setData({
         recording: true,
         paused: false,
@@ -104,6 +110,7 @@ Page({
         }
       }, 1000);
     } catch (e) {
+      wx.hideLoading();
       wx.showToast({ title: `开始失败: ${e.message}`, icon: 'none', duration: 3000 });
     }
   },

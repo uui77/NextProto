@@ -3,8 +3,13 @@
   <!-- 头部 -->
   <view class="header">
     <text class="title">📁 录音文件</text>
-    <button class="btn btn-ghost refresh-btn" size="mini" bindtap="loadFiles"
-      disabled="{{loading}}">{{loading ? '加载中...' : '刷新'}}</button>
+    <view class="header-btns">
+      <button class="btn btn-ghost refresh-btn" size="mini" bindtap="loadFiles"
+        disabled="{{loading}}">{{loading ? '加载中...' : '刷新'}}</button>
+      <button class="btn btn-ghost" size="mini" bindtap="toggleDebug">
+        {{showDebug ? '隐藏日志' : '查看日志'}}
+      </button>
+    </view>
   </view>
 
   <!-- 下载进度 -->
@@ -15,13 +20,23 @@
     </view>
   </view>
 
+  <!-- 调试日志 -->
+  <view class="card debug-card" wx:if="{{showDebug && debugLogs.length > 0}}">
+    <text class="section-title">🔍 调试日志</text>
+    <scroll-view scroll-y class="debug-log">
+      <view class="debug-line {{item.level}}" wx:for="{{debugLogs}}" wx:key="index">
+        <text>{{item.text}}</text>
+      </view>
+    </scroll-view>
+  </view>
+
   <!-- 文件列表 -->
   <view class="card file-list-card" wx:if="{{files.length > 0}}">
     <view class="file-item" wx:for="{{files}}" wx:key="name" wx:for-index="idx">
       <view class="file-info">
         <text class="file-name">{{item.name}}</text>
         <view class="file-meta">
-          <text class="meta-tag">{{item.duration}}s</text>
+          <text class="meta-tag">{{item.durationText}}</text>
           <text class="meta-tag" wx:if="{{item.sizeText}}">{{item.sizeText}}</text>
         </view>
       </view>
@@ -37,6 +52,7 @@
   <!-- 空状态 -->
   <view class="card empty-card" wx:if="{{files.length === 0 && !loading}}">
     <text class="empty-text">录音笔中暂无录音文件</text>
+    <text class="empty-hint">点击"查看日志"查看详细调试信息</text>
   </view>
 
   <!-- 已下载文件 -->

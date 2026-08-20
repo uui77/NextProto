@@ -17,6 +17,8 @@ tokens.json
 node_modules/
 miniprogram_npm/
 dist/
+# 微信开发者工具私人配置（含 AppID 等，勿提交）
+project.private.config.json
 
 # IDE
 .idea/

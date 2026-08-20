@@ -9,6 +9,8 @@ Page({
     downloading: false,
     downloadProgress: '',
     downloadedFiles: [],  // [{name, path, size, time}]
+    debugLogs: [],
+    showDebug: false,
   },
 
   onLoad() {
@@ -17,22 +19,55 @@ Page({
       setTimeout(() => wx.navigateBack(), 1000);
       return;
     }
+    // 设置日志回调，在页面显示调试日志
+    recorder.onLog = (level, msg) => {
+      this.addDebugLog(level, msg);
+    };
     this.loadFiles();
+  },
+
+  onUnload() {
+    recorder.onLog = null;
+  },
+
+  addDebugLog(level, msg) {
+    const time = new Date().toTimeString().slice(0, 8);
+    const line = `[${time}] [${level}] ${msg}`;
+    console.log(line);
+    const logs = [...this.data.debugLogs, { level, text: line }];
+    if (logs.length > 100) logs.shift();
+    this.setData({ debugLogs: logs });
+  },
+
+  toggleDebug() {
+    this.setData({ showDebug: !this.data.showDebug });
+  },
+
+  onPullDownRefresh() {
+    this.loadFiles().finally(() => wx.stopPullDownRefresh());
   },
 
   async loadFiles() {
     this.setData({ loading: true });
     try {
+      this.addDebugLog('INFO', '开始获取文件列表...');
       const files = await recorder.getFileList();
-      // 按时间倒序 + 预处理 sizeText
+      this.addDebugLog('INFO', `获取到 ${files.length} 个文件`);
       files.sort((a, b) => (a.name > b.name ? -1 : 1));
       const processed = files.map(f => ({
         ...f,
+        durationText: this.formatDuration(f.duration),
         sizeText: this.formatSize(f.size),
       }));
       this.setData({ files: processed, loading: false });
-      wx.showToast({ title: `共 ${files.length} 条录音`, icon: 'none' });
+      if (files.length === 0) {
+        wx.showToast({ title: '设备暂无录音', icon: 'none' });
+      } else {
+        wx.showToast({ title: `共 ${files.length} 条录音`, icon: 'none' });
+      }
     } catch (e) {
+      console.error(`[Files] 文件列表获取失败:`, e);
+      this.addDebugLog('ERR', `文件列表获取失败: ${e.message || e}`);
       this.setData({ loading: false });
       wx.showToast({ title: `加载失败: ${e.message}`, icon: 'none' });
     }
@@ -146,8 +181,14 @@ Page({
   },
 
   formatDuration(sec) {
-    const m = Math.floor(sec / 60);
+    if (sec == null) return '0:00';
+    sec = Math.floor(sec);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
     const s = sec % 60;
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
     return `${m}:${s.toString().padStart(2, '0')}`;
   },
 

@@ -28,6 +28,10 @@ class BleTransport {
     this.mtu = 23;
     // 实际发现的服务 UUID（设备可能返回大小写/格式不同的 UUID）
     this._serviceUuid = null;
+    // 实际发现的写特征 UUID
+    this._writeCharUuid = null;
+    // 写特征属性（用于判断是否支持 writeNoResponse）
+    this._writeProps = null;
     // 两个独立解析器
     this.parserCtrl = new P.FrameParser('AE22');
     this.parserKey = new P.FrameParser('AE23');
@@ -127,6 +131,15 @@ class BleTransport {
   }
 
   async _setupServices() {
+    // 0. 先注册全局 Notify 回调（必须在订阅之前注册，否则可能丢失首包）
+    if (!this._notifyRegistered) {
+      this._notifyRegistered = true;
+      wx.onBLECharacteristicValueChange((res) => {
+        this._handleNotify(res);
+      });
+      console.log('[BLE] 全局 Notify 回调已注册');
+    }
+
     // 1. 获取服务
     const services = await this._getServices();
     console.log('[BLE] 发现服务:', services.map(s => s.uuid));
@@ -148,26 +161,33 @@ class BleTransport {
     }
     if (!writeChar) throw new Error('未找到 AE21 写特征');
     if (!notifyCtrlChar) throw new Error('未找到 AE22 通知特征');
+    // 存储实际写特征 UUID（避免设备 UUID 格式差异导致写入失败）
+    this._writeCharUuid = writeChar.uuid;
+    console.log('[BLE] 写特征 UUID:', this._writeCharUuid);
 
-    // 3. 先注册全局 Notify 回调（确保在订阅前注册）
-    if (!this._notifyRegistered) {
-      this._notifyRegistered = true;
-      wx.onBLECharacteristicValueChange((res) => {
-        this._handleNotify(res);
-      });
-      console.log('[BLE] 全局 Notify 回调已注册');
-    }
+    // 3. 确认特征具备通知/写权限，存储写特征属性供写入时判断
+    const ctrlProps = notifyCtrlChar.properties || {};
+    const keyProps = notifyKeyChar ? (notifyKeyChar.properties || {}) : {};
+    this._writeProps = writeChar.properties || {};
+    console.log(`[BLE] AE22 特征属性: ${JSON.stringify(ctrlProps)}`);
+    console.log(`[BLE] AE23 特征属性: ${JSON.stringify(keyProps)}`);
+    console.log(`[BLE] AE21 写特征属性: ${JSON.stringify(this._writeProps)}`);
+    const canNoResp = !!this._writeProps.writeNoResponse;
+    const canWrite = !!this._writeProps.write;
+    console.log(`[BLE] AE21 写支持: write=${canWrite}, writeNoResponse=${canNoResp}`);
 
-    // 4. 订阅 AE22
+    // 4. 订阅 AE22（控制+数据通道）
     await this._subscribeNotify(notifyCtrlChar.uuid);
-    // 5. 订阅 AE23
+    // 5. 订阅 AE23（按键事件通道，可选）
     if (notifyKeyChar) {
       try { await this._subscribeNotify(notifyKeyChar.uuid); } catch (e) {
         console.warn('[BLE] AE23 订阅失败（非致命）');
       }
+    } else {
+      console.warn('[BLE] 未发现 AE23 按键特征，设备按键事件将不可用');
     }
 
-    // 6. 协商 MTU
+    // 6. 协商 MTU（部分设备不支持会失败，降级为 23）
     try {
       const mtuRes = await this._setMTU(247);
       this.mtu = mtuRes || 23;
@@ -230,16 +250,28 @@ class BleTransport {
   _handleNotify(res) {
     if (!res || !res.characteristicId || !res.value) return;
     const charUuid = res.characteristicId.toUpperCase();
+    const bytes = new Uint8Array(res.value);
     let parser, source;
     if (charUuid.includes('AE22')) {
       parser = this.parserCtrl; source = 'AE22';
     } else if (charUuid.includes('AE23')) {
       parser = this.parserKey; source = 'AE23';
     } else {
+      console.log(`[BLE] 收到非预期特征 ${charUuid} ${bytes.length}B`);
       return;
     }
+    // 每次通知打印前 20 字节 hex，便于定位
+    const hexPreview = Array.from(bytes.slice(0, 20))
+      .map(b => b.toString(16).padStart(2, '0')).join(' ');
+    console.log(`[BLE←] ${source} ${bytes.length}B hex=${hexPreview}${bytes.length > 20 ? '...' : ''}`);
+
     const frames = parser.feed(res.value);
+    if (frames.length === 0) {
+      console.log(`[BLE] ${source} 未解析出完整帧（累积 ${parser._buf.length} 字节缓冲，CRC 错误 ${parser.crcErrors}）`);
+      return;
+    }
     for (const frame of frames) {
+      console.log(`[BLE→] ${source} 帧 seq=${frame.seq} type=${frame.type} cmd=${frame.cmd} bodyLen=${frame.body.length}`);
       if (this.onFrame) {
         try {
           this.onFrame(frame, source);
@@ -252,18 +284,46 @@ class BleTransport {
 
   write(data) {
     return new Promise((resolve, reject) => {
-      wx.writeBLECharacteristicValue({
-        deviceId: this.deviceId,
-        serviceId: this._serviceUuid || SERVICE_UUID,
-        characteristicId: CHAR_WRITE,
-        value: data,
-        writeType: 'noResponse',
-        success: () => resolve(),
-        fail: (err) => {
-          console.error('[BLE] 写入失败', err);
-          reject(err);
-        },
-      });
+      const hex = Array.from(new Uint8Array(data)).slice(0, 20)
+        .map(b => b.toString(16).padStart(2, '0')).join(' ');
+      const useNoResp = this._writeProps && this._writeProps.writeNoResponse;
+      const firstType = useNoResp ? 'noResponse' : 'default';
+      const fallbackType = useNoResp ? 'default' : 'noResponse';
+      const deviceId = this.deviceId;
+      const serviceId = this._serviceUuid || SERVICE_UUID;
+      const charId = this._writeCharUuid || CHAR_WRITE;
+      console.log(`[BLE→] 写入 ${data.byteLength}B hex=${hex}${data.byteLength > 20 ? '...' : ''} writeType=${firstType}`);
+
+      const doWrite = (wtype, isFallback = false) => {
+        const opts = {
+          deviceId,
+          serviceId,
+          characteristicId: charId,
+          value: data,
+          success: () => {
+            console.log(`[BLE] 写入成功 (${wtype})`);
+            resolve();
+          },
+          fail: (err) => {
+            if (isFallback) {
+              // 两种类型都失败，最后尝试不带 writeType（兼容旧版微信）
+              console.warn('[BLE] 两种写入类型均失败，尝试不带 writeType...');
+              wx.writeBLECharacteristicValue({
+                deviceId, serviceId, characteristicId: charId, value: data,
+                success: () => { console.log('[BLE] 写入成功 (无类型)'); resolve(); },
+                fail: (err2) => { console.error('[BLE] 写入失败', err2); reject(err2); },
+              });
+            } else {
+              console.warn(`[BLE] writeType=${wtype} 失败，尝试 ${fallbackType}...`);
+              doWrite(fallbackType, true);
+            }
+          },
+        };
+        // 仅在新版微信中传递 writeType
+        if (wtype) opts.writeType = wtype;
+        wx.writeBLECharacteristicValue(opts);
+      };
+      doWrite(firstType);
     });
   }
 
@@ -277,6 +337,8 @@ class BleTransport {
           this.connected = false;
           this.deviceId = null;
           this._serviceUuid = null;
+          this._writeCharUuid = null;
+          this._writeProps = null;
           this.parserCtrl.reset();
           this.parserKey.reset();
           if (this.onDisconnect) this.onDisconnect();

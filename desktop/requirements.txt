@@ -1,1 +1,3 @@
 bleak>=0.22
+# Windows 原生配对（WinRT）：ble.py _pair_via_winrt 依赖，缺失会导致连接失败
+winsdk>=1.0.0b10 ; sys_platform == "win32"

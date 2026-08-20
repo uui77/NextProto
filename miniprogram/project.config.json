@@ -44,9 +44,9 @@
     "localPlugins": false,
     "disableUseStrict": false,
     "useCompilerPlugins": false,
-    "condition": false,
-    "swc": false,
-    "disableSWC": true,
+    "condition": true,
+    "swc": true,
+    "disableSWC": false,
     "ignoreUploadUnusedFiles": false
   },
   "compileType": "miniprogram",

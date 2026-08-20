@@ -204,12 +204,14 @@ class BleTransport:
             try:
                 from winsdk.windows.devices.enumeration import (
                     DeviceInformation, DevicePairingKinds, DevicePairingResultStatus,
+                    DevicePairingRequestedEventArgs,
                 )
                 from winsdk.windows.devices.bluetooth import BluetoothDevice
             except ModuleNotFoundError:
                 # 旧包命名
                 from winrt.windows.devices.enumeration import (
                     DeviceInformation, DevicePairingKinds, DevicePairingResultStatus,
+                    DevicePairingRequestedEventArgs,
                 )
                 from winrt.windows.devices.bluetooth import BluetoothDevice
         except Exception as exc:
@@ -225,13 +227,14 @@ class BleTransport:
 
         # 2) 从 MAC 获取 BluetoothDevice 对象（异步）
         try:
-            loop = _aio.get_running_loop()
+            # winsdk 的异步工厂方法名带 _async 后缀，且返回 IAsyncOperation，
+            # 可直接 await（不应丢进 run_in_executor）。
             bt_dev = await _aio.wait_for(
-                loop.run_in_executor(None, lambda: BluetoothDevice.from_bluetooth_address(mac_int)),
+                BluetoothDevice.from_bluetooth_address_async(mac_int),
                 timeout=10.0,
             )
             if bt_dev is None:
-                logger.info("WinRT BluetoothDevice.from_bluetooth_address 返回 None")
+                logger.info("WinRT BluetoothDevice.from_bluetooth_address_async 返回 None")
                 return False
         except Exception as exc:
             logger.info("获取 BluetoothDevice 对象失败：%s", exc)
@@ -243,21 +246,24 @@ class BleTransport:
             logger.info("DeviceInformation.Pairing 不可用，降级打开设置页")
             return "unsupported"
 
-        # Just Works + Confirm + ProvidePin 三种最常见配对方式都勾上
-        kinds = (
-            int(DevicePairingKinds.CONFIRM_ONLY)
-            | int(DevicePairingKinds.PROVIDE_PIN)
-            | int(DevicePairingKinds.CONFIRM_PIN_MATCH)
-        )
-        try:
-            pair_operation = pairing.custom.pair_async(kinds)
-            # 转成可 await 的 Future（winsdk 返回 IAsyncOperation，用 asyncio.wrap_future）
+        # Just Works（CONFIRM_ONLY）：注册 pairing_requested 处理器并在回调里自动
+        # accept()，从而等效于官方网页 Web Bluetooth 的"点一下就自动配对"，无需用户
+        # 进 Windows 蓝牙设置页。此前不注册处理器报 REQUIRED_HANDLER_NOT_REGISTERED。
+        kinds = int(DevicePairingKinds.CONFIRM_ONLY)
+        custom = pairing.custom
+
+        def _on_pairing_requested(_sender, args) -> None:
+            logger.info("收到系统配对请求（自动接受）：%s", args.pairing_kind)
             try:
-                pair_fut = _aio.wrap_future(pair_operation)
-            except Exception:
-                # 有些 winsdk 版本用 __await__ 直接
-                pair_fut = _aio.ensure_future(_aio.coroutine(lambda: pair_operation)())
-            res = await _aio.wait_for(pair_fut, timeout=timeout)
+                args.accept()
+            except Exception as exc:  # 设备可能已被占用/disconnect，捕获避免打断
+                logger.info("自动接受配对回调异常：%s", exc)
+
+        custom.add_pairing_requested(_on_pairing_requested)
+        try:
+            pair_operation = custom.pair_async(kinds)
+            # winsdk 的 IAsyncOperation 可直接 await；事件回调会在同一线程派发
+            res = await _aio.wait_for(pair_operation, timeout=timeout)
             status = getattr(res, "status", None)
             paired_statuses = {
                 int(DevicePairingResultStatus.PAIRED),
@@ -280,6 +286,11 @@ class BleTransport:
         except Exception as exc:
             logger.info("WinRT PairAsync 异常：%s", exc)
             return False
+        finally:
+            try:
+                custom.remove_pairing_requested(_on_pairing_requested)
+            except Exception:
+                pass
 
     @staticmethod
     def _launch_windows_bluetooth_settings(address: str) -> None:
@@ -336,6 +347,7 @@ class BleTransport:
             client = BleakClient(
                 device, disconnected_callback=self._handle_disconnect)
             unreachable_this_attempt = False
+            timeout_this_attempt = False
             try:
                 await _aio.wait_for(client.connect(), timeout=self.CONNECT_TIMEOUT)
                 self._client = client
@@ -354,6 +366,7 @@ class BleTransport:
                 return  # 正常退出
             except _aio.TimeoutError as exc:
                 last_exc = exc
+                timeout_this_attempt = True
                 friendly = (
                     "蓝牙连接超时（订阅通知无响应）。这通常表示录音笔需要先"
                     "在 Windows「设置 → 蓝牙和其他设备」里手动完成"
@@ -374,19 +387,25 @@ class BleTransport:
             except Exception:
                 pass
             self._client = None
-            # 是否要重试？只有 Unreachable 才重试，其他错误直接抛出（更符合直觉）
+            # 既然是同设备的第二条连接，最常见原因是上一条连接还没释放
+            # （浏览器官方测试页仍保持「已连接」、或设备 bond 复位瞬时不可达）。
+            # Unreachable / 超时都应重试，给设备释放和找回的时间。
             should_retry = (
-                unreachable_this_attempt and attempt < max_retries
+                (unreachable_this_attempt or timeout_this_attempt)
+                and attempt < max_retries
             )
             if not should_retry:
                 # friendly 如果是 None 就抛原始异常；否则抛中文友好版
-                if "friendly" not in locals() or not friendly:
+                if not friendly:
                     raise last_exc
                 raise RuntimeError(friendly) from last_exc
-            # 进入重试
-            wait = backoff * (attempt + 1)
+            # 进入重试：等待 backoff 后重连。超时比 Unreachable 多等一些，
+            # 给 Windows 释放上一条 active 连接（若浏览器官方测试页仍开着）的机会。
+            wait = 3.0 * (attempt + 1) if timeout_this_attempt else backoff * (attempt + 1)
             logger.info(
-                "连接遇到 GATT Unreachable，%ds 后进行第 %d/%d 次重试…",
+                "连接遇到 %s，%ds 后进行第 %d/%d 次重试（若浏览器官方测试页仍开着，"
+                "请先关闭以释放设备连接）…",
+                "订阅/连接超时" if timeout_this_attempt else "GATT Unreachable",
                 wait, attempt + 2, max_retries + 1,
             )
             await _aio.sleep(wait)
