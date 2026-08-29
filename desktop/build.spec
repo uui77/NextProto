@@ -15,8 +15,24 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path("."))).resolve()
-RECORD_DIR = PROJECT_ROOT / "record"
-FFMPEG_DIR = PROJECT_ROOT / "ffmpeg-8.1.2-essentials_build"
+RECORD_DIR = PROJECT_ROOT
+
+# --- 多候选查找 ffmpeg 目录（兼容不同放置位置） ---
+# desktop 目录往上：同级 / 上两级 / 上三级 都可能放 ffmpeg
+_ffmpeg_candidates = [
+    RECORD_DIR.parent / "ffmpeg-8.1.2-essentials_build",          # NextProto/ffmpeg...
+    RECORD_DIR.parent.parent / "ffmpeg-8.1.2-essentials_build",   # 录音卡/ffmpeg...
+    RECORD_DIR.parent.parent.parent / "ffmpeg-8.1.2-essentials_build",
+    RECORD_DIR / "ffmpeg-8.1.2-essentials_build",                 # desktop 内
+]
+FFMPEG_DIR = None
+for _cand in _ffmpeg_candidates:
+    if (_cand / "bin" / "ffmpeg.exe").is_file():
+        FFMPEG_DIR = _cand
+        break
+if FFMPEG_DIR is None:
+    # 兜底：取第一个候选做错误提示
+    FFMPEG_DIR = _ffmpeg_candidates[1]
 
 # --- datas：随包分发的资源（(源, 目标目录)） ---
 datas = [
@@ -76,6 +92,9 @@ hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("bleak")
 hiddenimports += collect_submodules("onnxruntime")
 hiddenimports += collect_submodules("funasr_onnx")
+# funasr_onnx / librosa 运行时动态导入 scipy / sklearn，静态扫描不到，必须显式收集
+hiddenimports += collect_submodules("scipy")
+hiddenimports += collect_submodules("sklearn")
 
 a = Analysis(
     [str(RECORD_DIR / "main.py")],
@@ -87,12 +106,14 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     # 不打包的东西：Qt、matplotlib、pytest、IPython 等（减小体积）
+    # 注意：scipy/sklearn 被 funasr_onnx/librosa 运行时需要，不能排除
     excludes=[
-        "matplotlib", "pandas", "scipy", "sklearn",
+        "matplotlib", "pandas",
         "PyQt5", "PyQt6", "PySide2", "PySide6",
         "IPython", "notebook", "pytest",
         "tkinter", "pandas.io.formats.style",
-        "torch", "tensorflow", "keras",
+        "tensorflow", "keras",
+        "torch", "torchvision", "torchaudio",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -118,6 +139,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(RECORD_DIR / "web" / "favicon.ico"),
 )
 
 coll = COLLECT(

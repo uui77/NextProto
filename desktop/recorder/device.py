@@ -39,6 +39,7 @@ class DownloadResult:
     is_wav: bool = False
     wav_info: Optional[P.WavInfo] = None  # 7.4 节验收：声明长度/采样参数
     device_name: str = ""  # 2-3 帧中设备回报的实际导入文件名
+    converted_from: str = ""  # 非空表示经过格式转换（如 "opus"）
 
 
 @dataclass
@@ -375,8 +376,9 @@ class Recorder:
             self._arm_download_idle()
             data = await self._dl_future
             wav_info = P.inspect_wav(data)
+            is_wav = P.is_wav(data)
             result = DownloadResult(filename=filename, data=data,
-                                    is_wav=P.is_wav(data),
+                                    is_wav=is_wav,
                                     wav_info=wav_info,
                                     device_name=self._dl_device_name)
             result.path = self._save_download(filename, entry, data)
@@ -478,10 +480,60 @@ class Recorder:
         path.write_bytes(data)
         return path
 
+    def _convert_opus_to_wav(self, opus_path: Path,
+                              entry: FileEntry) -> Path:
+        """把下载的 Opus 文件转换为 WAV（16kHz/16bit/mono）。
+
+        处理两种情况：
+        1. raw Opus 码流（无 OggS 头）→ 先用 wrap_raw_opus_file 包装为 Ogg Opus
+        2. 合法 Ogg Opus → 直接用 pydub/ffmpeg 转 WAV
+        转换后删除中间 Opus 文件，返回 WAV 路径。
+        """
+        raw = opus_path.read_bytes()
+        is_ogg = raw[:4] == b"OggS"
+        logger.info("[convert] 文件=%s 大小=%d OggS=%s 头16字节=%s",
+                     opus_path.name, len(raw), is_ogg, raw[:16].hex())
+        if not is_ogg:
+            # raw Opus 码流：先包装为合法 Ogg Opus
+            tmp_ogg = opus_path.with_suffix(".tmp.ogg")
+            try:
+                pkt_count, dur = P.wrap_raw_opus_file(opus_path, tmp_ogg)
+                logger.info("[convert] wrap 完成: %d packets ≈ %.1fs",
+                            pkt_count, dur)
+            except Exception as exc:
+                logger.error("[convert] wrap_raw_opus_file 失败: %s", exc)
+                raise
+            opus_path.unlink()
+            tmp_ogg.rename(opus_path)
+        # pydub 解码并转 WAV
+        from pydub import AudioSegment
+        seg = AudioSegment.from_file(str(opus_path))
+        wav_path = opus_path.with_suffix(".wav")
+        if wav_path.exists():
+            stem = wav_path.stem
+            wav_path = self.output_dir / \
+                f"{stem}_{entry.duration}s_{entry.size}.wav"
+            n = 1
+            while wav_path.exists():
+                wav_path = self.output_dir / \
+                    f"{stem}_{entry.duration}s_{entry.size}_{n}.wav"
+                n += 1
+        seg.set_frame_rate(16000).set_channels(1).export(
+            str(wav_path), format="wav")
+        opus_path.unlink()  # 删除中间 Opus 文件
+        return wav_path
+
     # ============================================================ 文件删除
 
     async def delete_file(self, entry: FileEntry) -> Optional[int]:
         """2-8 删除单个文件（28B 原始条目）；旧固件可能无 2-13 应答。"""
+        # 先终止设备端可能残留的导入会话，否则设备会返回 code=1（拒绝删除）
+        await self.abort_download()
+        # 清理本地下载会话状态，防止残留帧误路由到下载处理器
+        self._dl_active = False
+        self._dl_future = None
+        self._cancel_download_idle()
+        await asyncio.sleep(0.15)
         try:
             frame = await self._request(
                 P.TYPE_FILE, P.FILE_DELETE_ONE, entry.raw,
@@ -492,6 +544,12 @@ class Recorder:
 
     async def delete_all(self) -> Optional[int]:
         """2-9 删除全部文件；旧固件可能无 2-10 应答。"""
+        # 同 delete_file：先清理残留导入会话
+        await self.abort_download()
+        self._dl_active = False
+        self._dl_future = None
+        self._cancel_download_idle()
+        await asyncio.sleep(0.15)
         try:
             frame = await self._request(
                 P.TYPE_FILE, P.FILE_DELETE_ALL, b"",

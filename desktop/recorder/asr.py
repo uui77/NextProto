@@ -567,6 +567,21 @@ def _prepare_audio_16k(audio_path: str, gain: str = "auto") -> str:
     try:
         data, sr = sf.read(audio_path)
     except Exception:
+        # raw Opus 码流（无 OggS 头）需要先包装为合法 Ogg Opus
+        try:
+            with open(audio_path, "rb") as _f:
+                _head = _f.read(4)
+            if audio_path.lower().endswith(".opus") and _head != b"OggS":
+                from .protocol import wrap_raw_opus_file
+                import tempfile as _tf
+                _tmp = _tf.NamedTemporaryFile(
+                    suffix=".ogg.opus", delete=False)
+                _tmp.close()
+                wrap_raw_opus_file(audio_path, _tmp.name)
+                logger.info("raw Opus 已包装为 Ogg: %s", _tmp.name)
+                audio_path = _tmp.name
+        except Exception as _exc:
+            logger.warning("raw Opus 包装失败: %s", _exc)
         logger.info("soundfile 读不了，用 pydub 解码再存 wav")
         from pydub import AudioSegment
         seg = AudioSegment.from_file(audio_path)

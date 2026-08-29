@@ -282,6 +282,13 @@
             <p class="es-title">设备上暂无录音文件</p>
             <p class="es-desc">试着先在录音卡上录一段，然后点"刷新"。</p>
           </div>
+          <!-- 下载进度条：紧贴设备表格底部，不出现在本地文件区 -->
+          <div class="progress-section hidden" id="progressWrap">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressBar"></div>
+            </div>
+            <span class="progress-text" id="progressText"></span>
+          </div>
         </div>
 
         <!-- Local Files -->
@@ -290,114 +297,6 @@
           <div class="empty-state hidden" id="localEmpty">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" width="64" height="64"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <p>本地暂无文件</p>
-          </div>
-        </div>
-
-        <!-- Progress -->
-        <div class="progress-section hidden" id="progressWrap">
-          <div class="progress-bar">
-            <div class="progress-fill" id="progressBar"></div>
-          </div>
-          <span class="progress-text" id="progressText"></span>
-        </div>
-      </div>
-
-      <!-- Transcription Result -->
-      <div class="card hidden" id="transcribeCard">
-        <div class="card-header">
-          <div class="card-title-wrap">
-            <h2 class="card-title">转写结果</h2>
-            <p class="card-desc" id="transcribeMeta"></p>
-          </div>
-          <div class="card-actions">
-            <div class="search-input-wrap" title="搜索转写内容（回车定位下一个）">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input id="segSearchInput" class="search-input" type="search" placeholder="搜索转写文字…">
-              <span class="search-count hidden" id="segSearchCount"></span>
-            </div>
-            <div class="dropdown" id="copyDropdown" title="复制为多种格式">
-              <button class="btn btn-ghost" id="copyBtn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                复制 ▾
-              </button>
-              <div class="dropdown-menu" id="copyMenu">
-                <button class="dd-item" data-copy="plain">📄 复制纯文本</button>
-                <button class="dd-item" data-copy="spk">🗣 复制（带说话人）</button>
-                <button class="dd-item" data-copy="ts">⏱ 复制（带时间戳）</button>
-                <button class="dd-item" data-copy="full">🧾 复制（说话人+时间戳）</button>
-              </div>
-            </div>
-            <button class="btn btn-ghost" id="downloadTxtBtn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              下载 txt
-            </button>
-            <div class="seg-divider"></div>
-            <button class="btn btn-ghost" id="summaryBtn" title="AI 生成结构化摘要 + 思维导图（调用本地/云端大模型）">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 1.5.5 2.9 1.3 4.1L4 20l5.9-1.3c1.2.8 2.6 1.3 4.1 1.3h1a8 8 0 0 0 0-16z"/><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 14c2 0 3-1 3-1"/></svg>
-              🤖 AI 摘要
-            </button>
-            <button class="btn btn-ghost" id="exportMdBtn" title="导出 Markdown（转写全文 + AI 摘要，一次存档）">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13v5l2-2 2 2v-5"/><path d="M14 13h3"/></svg>
-              📄 导出 MD
-            </button>
-            <div class="seg-divider"></div>
-            <button class="btn btn-ghost" id="editBtn" title="进入编辑模式">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              编辑
-            </button>
-            <button class="btn btn-primary hidden" id="saveBtn" title="保存修改到服务器">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              保存
-            </button>
-            <button class="btn btn-ghost hidden" id="cancelBtn">取消</button>
-            <button class="btn btn-ghost" id="reTranscribeBtn" title="用当前模型重新转写（覆盖之前结果）">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              重新转写
-            </button>
-            <div class="seg-divider"></div>
-            <button class="btn btn-ghost close-card-btn" id="closeTranscribeBtn" title="关闭转写结果">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              关闭
-            </button>
-          </div>
-        </div>
-        <div class="transcribe-audio hidden" id="transcribeAudioWrap">
-          <div class="audio-toolbar">
-            <div class="audio-controls-left">
-              <button class="audio-ctrl-btn" id="audioPlayBtn" title="播放 / 暂停">
-                <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                <svg class="icon-pause hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
-              </button>
-              <button class="audio-ctrl-btn" id="audioStopBtn" title="停止">
-                <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
-              </button>
-            </div>
-            <div class="audio-progress-wrap" id="audioProgress">
-              <div class="audio-progress-bg"></div>
-              <div class="audio-progress-fill" id="audioProgressFill"></div>
-            </div>
-            <span class="audio-pos" id="audioPos">00:00 / 00:00</span>
-            <audio id="transcribeAudio" preload="metadata" hidden></audio>
-            <div class="seg-speed-group" id="speedGroup" title="播放倍速">
-              <button class="seg-speed" data-rate="0.75">0.75×</button>
-              <button class="seg-speed active" data-rate="1">1×</button>
-              <button class="seg-speed" data-rate="1.25">1.25×</button>
-              <button class="seg-speed" data-rate="1.5">1.5×</button>
-              <button class="seg-speed" data-rate="1.8">1.8×</button>
-              <button class="seg-speed" data-rate="2">2×</button>
-            </div>
-          </div>
-        </div>
-        <div class="transcribe-body" id="transcribeBody">
-          <!-- View mode: segmented display with timestamps -->
-          <div class="segments-view" id="segmentsView"></div>
-          <!-- Edit mode: plain textarea -->
-          <div class="edit-view hidden" id="editView">
-            <div class="edit-toolbar">
-              <span class="muted">编辑文本内容，保存会覆盖原 .txt 文件（并保留分段结构）</span>
-              <span class="muted hidden" id="editNoChangeTip" style="color:var(--accent);">内容未变化，无需保存</span>
-            </div>
-            <textarea id="transcribeEdit" spellcheck="false"></textarea>
           </div>
         </div>
       </div>
@@ -607,6 +506,111 @@
 
 <!-- Toast Container -->
 <div class="toast-stack" id="toastStack"></div>
+
+<!-- 转写结果弹窗 -->
+<div class="modal-overlay hidden" id="transcribeModal">
+  <div class="modal-card modal-xl">
+    <div class="modal-header">
+      <div>
+        <h3>转写结果</h3>
+        <p class="modal-sub" id="transcribeMeta"></p>
+      </div>
+      <div class="modal-header-actions">
+        <button class="btn-icon" id="transcribeFullscreenBtn" title="全屏切换">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M4 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <button class="btn-icon" id="closeTranscribeBtn" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modal-toolbar">
+      <div class="search-input-wrap" title="搜索转写内容（回车定位下一个）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="segSearchInput" class="search-input" type="search" placeholder="搜索转写文字…">
+        <span class="search-count hidden" id="segSearchCount"></span>
+      </div>
+      <div class="dropdown" id="copyDropdown" title="复制为多种格式">
+        <button class="btn btn-ghost" id="copyBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          复制 ▾
+        </button>
+        <div class="dropdown-menu" id="copyMenu">
+          <button class="dd-item" data-copy="plain">📄 复制纯文本</button>
+          <button class="dd-item" data-copy="spk">🗣 复制（带说话人）</button>
+          <button class="dd-item" data-copy="ts">⏱ 复制（带时间戳）</button>
+          <button class="dd-item" data-copy="full">🧾 复制（说话人+时间戳）</button>
+        </div>
+      </div>
+      <button class="btn btn-ghost" id="downloadTxtBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        下载 txt
+      </button>
+      <div class="seg-divider"></div>
+      <button class="btn btn-ghost" id="summaryBtn" title="AI 生成结构化摘要 + 思维导图">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 1.5.5 2.9 1.3 4.1L4 20l5.9-1.3c1.2.8 2.6 1.3 4.1 1.3h1a8 8 0 0 0 0-16z"/><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 14c2 0 3-1 3-1"/></svg>
+        🤖 AI 摘要
+      </button>
+      <button class="btn btn-ghost" id="exportMdBtn" title="导出 Markdown">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13v5l2-2 2 2v-5"/><path d="M14 13h3"/></svg>
+        📄 导出 MD
+      </button>
+      <div class="seg-divider"></div>
+      <button class="btn btn-ghost" id="editBtn" title="进入编辑模式">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        编辑
+      </button>
+      <button class="btn btn-primary hidden" id="saveBtn" title="保存修改">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        保存
+      </button>
+      <button class="btn btn-ghost hidden" id="cancelBtn">取消</button>
+      <button class="btn btn-ghost" id="reTranscribeBtn" title="重新转写">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        重新转写
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="transcribe-audio hidden" id="transcribeAudioWrap">
+        <div class="audio-toolbar">
+          <div class="audio-controls-left">
+            <button class="audio-ctrl-btn" id="audioPlayBtn" title="播放 / 暂停">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              <svg class="icon-pause hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+            </button>
+            <button class="audio-ctrl-btn" id="audioStopBtn" title="停止">
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+            </button>
+          </div>
+          <div class="audio-progress-wrap" id="audioProgress">
+            <div class="audio-progress-bg"></div>
+            <div class="audio-progress-fill" id="audioProgressFill"></div>
+          </div>
+          <span class="audio-pos" id="audioPos">00:00 / 00:00</span>
+          <audio id="transcribeAudio" preload="metadata" hidden></audio>
+          <div class="seg-speed-group" id="speedGroup" title="播放倍速">
+            <button class="seg-speed" data-rate="0.75">0.75×</button>
+            <button class="seg-speed active" data-rate="1">1×</button>
+            <button class="seg-speed" data-rate="1.25">1.25×</button>
+            <button class="seg-speed" data-rate="1.5">1.5×</button>
+            <button class="seg-speed" data-rate="1.8">1.8×</button>
+            <button class="seg-speed" data-rate="2">2×</button>
+          </div>
+        </div>
+      </div>
+      <div class="transcribe-body" id="transcribeBody">
+        <div class="segments-view" id="segmentsView"></div>
+        <div class="edit-view hidden" id="editView">
+          <div class="edit-toolbar">
+            <span class="muted">编辑文本内容，保存会覆盖原 .txt 文件</span>
+            <span class="muted hidden" id="editNoChangeTip" style="color:var(--accent);">内容未变化，无需保存</span>
+          </div>
+          <textarea id="transcribeEdit" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- 音频剪辑编辑器 -->
 <div class="modal-overlay hidden" id="clipModal">

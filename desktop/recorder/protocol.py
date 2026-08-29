@@ -196,14 +196,14 @@ class FileEntry:
     name: str       # 20B 固定字段解出的截断名，如 note20260710-162938.
     raw: bytes = field(default=b"", repr=False)
     def candidate_names(self) -> List[str]:
-        """下载候选文件名：优先 base.wav，其次 base.opus，最后原始截断名。"""
+        """下载候选文件名：优先 base.opus（体积小、BLE 传输快），其次 base.wav。"""
         base = self.name.rstrip(".")
         # 截断名形如 note20260710-162938. —— 需重建扩展名
-        for known_ext in (".wav", ".opus", ".mp3"):
+        for known_ext in (".opus", ".wav", ".mp3"):
             if base.lower().endswith(known_ext):
                 base = base[:-len(known_ext)]
                 break
-        return [base + ".wav", base + ".opus", self.name]
+        return [base + ".opus", base + ".wav", self.name]
     @property
     def estimated_wav_size(self) -> int:
         """WAV 进度估算：时长 × 32000 B/s + 44（16kHz/16bit/mono）。"""

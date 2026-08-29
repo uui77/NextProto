@@ -11,10 +11,112 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from typing import Callable, List, Optional
+import threading
+import concurrent.futures
+from typing import Any, Awaitable, Callable, List, Optional, TypeVar
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
+
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Windows + PyInstaller(打包后) 专用：MTA 工作线程。
+#
+# 现象：打包的 EXE 里调用 bleak（扫描/连接）时抛
+#   BleakError: Thread is configured for Windows GUI but callbacks are not working.
+#              Suspect unwanted side effects from importing 'pythoncom'.
+#
+# 根因：PyInstaller 的 pywin32 hook 会在程序入口前把主线程 COM 模型锁死在
+# STA(APARTMENTTHREADED)/MAIN_STA，而 bleak 的 WinRT 后端需要
+# COINIT_MULTITHREADED (MTA)；SetTimer 回调需要消息泵，STA 线程没泵就超时。
+#
+# 解决方案：所有 bleak 相关协程（scan/pair/connect/disconnect/write）统一丢
+# 到单独的"BLE-MTA-Worker"线程里执行。该线程从未被任何代码初始化过 COM，
+# bleak/winsdk 会自己用 MTA 初始化 → 回调正常 → 扫描连接均 OK。
+#
+# 跨线程回调：notify/disconnect 等 BLE 回调在 MTA 线程里被调用时，通过
+# caller_loop.call_soon_threadsafe 投递回 API 调用方的事件循环。
+# ============================================================================
+_T = TypeVar("_T")
+
+
+class _MtaWorker:
+    """封装长期存活的 MTA 工作线程 + 专属 asyncio 事件循环。"""
+
+    def __init__(self) -> None:
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ready_evt = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        # 只在 Windows 启用；Linux/macOS 直接在调用者 loop 里跑
+        self._enabled = sys.platform.startswith("win")
+
+    # ---- 生命周期 ----
+    def _ensure_started(self) -> None:
+        if self._thread is not None or not self._enabled:
+            return
+        self._thread = threading.Thread(
+            target=self._thread_main, name="BLE-MTA-Worker", daemon=True)
+        self._thread.start()
+        if not self._ready_evt.wait(timeout=10):
+            raise RuntimeError("BLE 工作线程启动超时（请重试）")
+
+    def _thread_main(self) -> None:
+        try:
+            # 显式用 MTA 初始化 COM（bleak/winsdk 若未初始化会自己做，
+            # 这里先把它锁死到 MTA，避免 bleak 多线程下的竞态）
+            if sys.platform.startswith("win"):
+                try:
+                    import ctypes as _ct
+                    _COINIT_MULTITHREADED = 0x0
+                    _ct.WinDLL("ole32").CoInitializeEx(None, _COINIT_MULTITHREADED)
+                except Exception:
+                    pass
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
+        finally:
+            self._ready_evt.set()
+        # 永久运行；程序退出 daemon=True 会自动杀
+        try:
+            self._loop.run_forever()
+        finally:
+            try:
+                self._loop.close()
+            except Exception:
+                pass
+            if sys.platform.startswith("win"):
+                try:
+                    import ctypes as _ct
+                    _ct.WinDLL("ole32").CoUninitialize()
+                except Exception:
+                    pass
+
+    # ---- 公共 API：把一个协程/工厂丢到 MTA loop 执行，对调用方表现为 awaitable ----
+    async def run(self, coro_factory: Callable[[], Awaitable[_T]],
+                  *, caller_loop: Optional[asyncio.AbstractEventLoop] = None) -> _T:
+        """
+        coro_factory: 一个 0 参的工厂函数，返回 awaitable（必须是工厂而不是直接传
+            coroutine 对象，因为 coroutine 绑定创建 loop，跨线程跑会炸）。
+        """
+        if not self._enabled:
+            # 非 Windows：直接在当前 loop 跑，保证行为一致
+            return await coro_factory()
+        self._ensure_started()
+        assert self._loop is not None
+        # 用 run_coroutine_threadsafe 把协程塞到 MTA loop，拿到 concurrent.futures.Future
+        fut = asyncio.run_coroutine_threadsafe(coro_factory(), self._loop)
+        # 对当前 caller_loop 暴露一个 asyncio Future
+        return await asyncio.wrap_future(fut, loop=caller_loop)
+
+
+# 全局单例：整个进程共享一个 MTA 线程
+_MTA = _MtaWorker()
+
+
+def _run_in_mta(coro_factory: Callable[[], Awaitable[_T]]) -> Awaitable[_T]:
+    """顶层便利函数：等价于 _MTA.run()，自动获取当前 caller_loop。"""
+    return _MTA.run(coro_factory)
+
 def _uuid16(short: int) -> str:
     """16bit UUID 扩展为 128bit 标准形式。"""
     return f"0000{short:04x}-0000-1000-8000-00805f9b34fb"
@@ -87,13 +189,26 @@ class BleTransport:
     """封装一台录音笔的 BLE 连接与收发。
     on_main / on_key 回调分别收到 AE22 / AE23 的原始通知字节，
     上层各自用独立 FrameParser 处理。
+
+    实现注意（Windows 打包）：
+    所有 BLE 操作都通过 _run_in_mta 跳到「BLE-MTA-Worker」线程执行。
+    self._client 只能在 MTA 线程里访问；用户代码里设置的 on_main/on_key/
+    on_disconnect 回调会通过 caller_loop.call_soon_threadsafe 回到调用方
+    线程的事件循环，保证上层 FrameParser 等逻辑的线程归属与之前一致。
     """
+
+    CONNECT_TIMEOUT = 20.0       # BLE 连接/订阅显式超时（秒）。设备刚配对完 GATT 可能慢，给足 20s。
+    PAIR_TIMEOUT    = 20.0       # 配对超时（秒）：需要用户在系统弹窗里点确认，留久一点。
+
     def __init__(self) -> None:
         self._client: Optional[BleakClient] = None
         self.on_main: Optional[Callable[[bytes], None]] = None
         self.on_key: Optional[Callable[[bytes], None]] = None
         self.on_disconnect: Optional[Callable[[], None]] = None
-    # ------------------------------------------------------------ 扫描
+        # 调用方事件循环：回调时用 call_soon_threadsafe 把事件投递回去
+        self._caller_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    # ============================================================== 扫描
     @staticmethod
     async def scan(timeout: float = 6.0,
                    compat: bool = False) -> List[BLEDevice]:
@@ -101,27 +216,30 @@ class BleTransport:
         compat=True 时返回全部有名设备（兼容广播不携带服务 UUID
         的固件，对应厂家测试页的"兼容扫描"）。
         """
-        found: List[BLEDevice] = []
-        try:
-            devices = await BleakScanner.discover(
-                timeout=timeout, return_adv=True)
-        except Exception as exc:
-            friendly = _describe_ble_error(exc)
-            if friendly:
-                raise RuntimeError(friendly) from exc
-            raise
-        for device, adv in devices.values():
-            name = (device.name or adv.local_name or "")
-            uuids = [u.lower() for u in (adv.service_uuids or [])]
-            if SERVICE_UUID in uuids or \
-                    any(k in name.lower() for k in DEVICE_NAME_KEYWORDS):
-                found.append(device)
-            elif compat and name:
-                found.append(device)
-        return found
-    # ------------------------------------------------------------ 连接
-    CONNECT_TIMEOUT = 15.0       # BLE 连接/订阅显式超时（秒）。Windows 默认挂 30s 太长，15s 失败快一些。
-    PAIR_TIMEOUT    = 20.0       # 配对超时（秒）：需要用户在系统弹窗里点确认，留久一点。
+        def factory(timeout=timeout, compat=compat):
+            async def _do():
+                found: List[BLEDevice] = []
+                try:
+                    devices = await BleakScanner.discover(
+                        timeout=timeout, return_adv=True)
+                except Exception as exc:
+                    friendly = _describe_ble_error(exc)
+                    if friendly:
+                        raise RuntimeError(friendly) from exc
+                    raise
+                for device, adv in devices.values():
+                    name = (device.name or adv.local_name or "")
+                    uuids = [u.lower() for u in (adv.service_uuids or [])]
+                    if SERVICE_UUID in uuids or \
+                            any(k in name.lower() for k in DEVICE_NAME_KEYWORDS):
+                        found.append(device)
+                    elif compat and name:
+                        found.append(device)
+                return found
+            return _do()
+        return await _run_in_mta(factory)
+
+    # ============================================================== 连接
 
     async def pair(self, device) -> bool:
         """请求与设备配对（尽力而为）。
@@ -142,52 +260,64 @@ class BleTransport:
 
         返回 True/"settings_opened"/False 见 device.py.Recorder.pair 的 docstring。
         """
-        import asyncio as _aio
-        addr = getattr(device, "address", str(device))
-        need_cool_down = False   # 配对过程是否真的建立/断开过 GATT 连接（需要冷却）
-
-        # ---------- Step 1: Windows 优先走 WinRT 专属配对路径（不打扰 GATT 连接） ----------
-        if sys.platform.startswith("win"):
-            paired_winrt = await self._pair_via_winrt(addr, timeout=self.PAIR_TIMEOUT)
-            if paired_winrt is True:
-                logger.info("WinRT 配对成功（无 GATT 连接干扰）")
-                return True
-            if paired_winrt == "timed_out":
-                raise RuntimeError(
-                    f"配对等待超时（{self.PAIR_TIMEOUT:.0f}s）：请在系统弹出的配对对话框中"
-                    f"确认（录音笔常见 PIN：0000 / 1234），再重试。"
-                )
-            # paired_winrt == False 或 "unsupported" → 继续走跨平台/兜底
-
-        # ---------- Step 2: 跨平台 bleak pair()（会建立临时 GATT 连接，用完需冷却） ----------
-        client = BleakClient(device)
+        # 保存调用方事件循环（回调时跨线程用）
         try:
-            ok = await _aio.wait_for(
-                client.pair(protection_level=None),
-                timeout=self.PAIR_TIMEOUT,
-            )
-            if ok:
-                need_cool_down = True
-                return True
-        except NotImplementedError:
-            logger.info("bleak.pair() 后端不支持，最后尝试打开 Windows 设置页")
-        except _aio.TimeoutError:
-            logger.warning("bleak.pair() 超时 %ds", self.PAIR_TIMEOUT)
-        except Exception as exc:
-            logger.info("bleak.pair() 非致命失败（进入兜底）：%s", exc)
-        finally:
-            try:
-                if getattr(client, "is_connected", False):
-                    await client.disconnect()
-                    need_cool_down = True
-            except Exception:
-                pass
+            self._caller_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._caller_loop = None
 
-        # ---------- Step 3: 兜底——打开 Windows 蓝牙设置页 ----------
-        if sys.platform.startswith("win"):
-            self._launch_windows_bluetooth_settings(addr)
-            return "settings_opened"
-        return False
+        _self = self   # 闭包里避免直接写 self 引起歧义
+        PAIR_TIMEOUT = self.PAIR_TIMEOUT
+        addr = getattr(device, "address", str(device))
+
+        def factory():
+            async def _do():
+                import asyncio as _aio
+                need_cool_down = False
+
+                # Step 1: Windows 优先 WinRT 专属配对
+                if sys.platform.startswith("win"):
+                    paired_winrt = await _self._pair_via_winrt(addr, timeout=PAIR_TIMEOUT)
+                    if paired_winrt is True:
+                        logger.info("WinRT 配对成功（无 GATT 连接干扰）")
+                        return True
+                    if paired_winrt == "timed_out":
+                        raise RuntimeError(
+                            f"配对等待超时（{PAIR_TIMEOUT:.0f}s）：请在系统弹出的配对对话框中"
+                            f"确认（录音笔常见 PIN：0000 / 1234），再重试。"
+                        )
+
+                # Step 2: 跨平台 bleak pair()（会建立临时 GATT 连接）
+                client = BleakClient(device)
+                try:
+                    ok = await _aio.wait_for(
+                        client.pair(protection_level=None),
+                        timeout=PAIR_TIMEOUT,
+                    )
+                    if ok:
+                        need_cool_down = True
+                        return True
+                except NotImplementedError:
+                    logger.info("bleak.pair() 后端不支持，最后尝试打开 Windows 设置页")
+                except _aio.TimeoutError:
+                    logger.warning("bleak.pair() 超时 %ds", PAIR_TIMEOUT)
+                except Exception as exc:
+                    logger.info("bleak.pair() 非致命失败（进入兜底）：%s", exc)
+                finally:
+                    try:
+                        if getattr(client, "is_connected", False):
+                            await client.disconnect()
+                            need_cool_down = True
+                    except Exception:
+                        pass
+
+                # Step 3: 兜底——打开 Windows 蓝牙设置页
+                if sys.platform.startswith("win"):
+                    _self._launch_windows_bluetooth_settings(addr)
+                    return "settings_opened"
+                return False
+            return _do()
+        return await _run_in_mta(factory)
 
     async def _pair_via_winrt(self, address: str, timeout: float):
         """Windows 专属：用 WinRT 的 DeviceInformation.Pairing.PairAsync() 做程序化配对。
@@ -274,7 +404,8 @@ class BleTransport:
             if ok and int(status) != int(DevicePairingResultStatus.ACCESS_DENIED):
                 logger.info("WinRT PairAsync 成功 status=%s", status)
                 return True
-            if int(status) == int(DevicePairingResultStatus.ALREADY_PAIRED):
+            if status is not None and \
+                    int(status) == int(DevicePairingResultStatus.ALREADY_PAIRED):
                 logger.info("WinRT 提示已配对，直接返回成功")
                 return True
             logger.info("WinRT PairAsync 返回 status=%s（失败），打开设置页兜底", status)
@@ -339,100 +470,170 @@ class BleTransport:
           - 对「Unreachable / 服务发现失败」做最多 2 次带 2s backoff 的自动重试
             （Windows 下刚配对完设备常会瞬时不可达，重试后基本成功）。
         """
-        import asyncio as _aio
-        max_retries = 2
-        backoff = 2.0
-        last_exc = None
-        for attempt in range(max_retries + 1):
-            client = BleakClient(
-                device, disconnected_callback=self._handle_disconnect)
-            unreachable_this_attempt = False
-            timeout_this_attempt = False
-            try:
-                await _aio.wait_for(client.connect(), timeout=self.CONNECT_TIMEOUT)
-                self._client = client
-                # 订阅 AE22（设备回报 AE22 经常需要先完成配对，否则 WinRT 层会挂住直到超时）
-                await _aio.wait_for(
-                    client.start_notify(CHAR_NOTIFY_MAIN, self._notify_main),
-                    timeout=self.CONNECT_TIMEOUT,
-                )
-                try:
-                    await _aio.wait_for(
-                        client.start_notify(CHAR_NOTIFY_KEY, self._notify_key),
-                        timeout=self.CONNECT_TIMEOUT,
+        try:
+            self._caller_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._caller_loop = None
+
+        _self = self
+        CONNECT_TIMEOUT = self.CONNECT_TIMEOUT
+
+        def factory():
+            async def _do():
+                import asyncio as _aio
+                max_retries = 2
+                backoff = 2.0
+                last_exc = None
+                friendly: Optional[str] = None
+                addr = getattr(device, "address", str(device))
+                name = getattr(device, "name", "") or ""
+                logger.info("[connect] 开始连接 %s (%s) [MTA worker 线程]", addr, name)
+                for attempt in range(max_retries + 1):
+                    # 重试时改用纯 MAC 地址，强制 bleak 重新发现设备（避免 GATT 缓存过期）
+                    connect_target = device if attempt == 0 else addr
+                    client = BleakClient(
+                        connect_target, disconnected_callback=_self._handle_disconnect)
+                    unreachable_this_attempt = False
+                    timeout_this_attempt = False
+                    try:
+                        logger.info("[connect] attempt %d/%d: client.connect() ...",
+                                    attempt + 1, max_retries + 1)
+                        await _aio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT)
+                        logger.info("[connect] connect() OK, is_connected=%s", client.is_connected)
+                        _self._client = client
+                        # ---- 诊断：打印设备暴露的所有 GATT 服务和特征值 ----
+                        try:
+                            svcs = await _aio.wait_for(client.get_services(),
+                                                       timeout=CONNECT_TIMEOUT)
+                            svc_uuids = [str(s.uuid).lower() for s in svcs]
+                            char_uuids = []
+                            for s in svcs:
+                                for c in s.characteristics:
+                                    char_uuids.append(str(c.uuid).lower())
+                            logger.info("[connect] 发现 %d 个服务, %d 个特征值",
+                                        len(svcs), len(char_uuids))
+                            logger.info("[connect] services: %s", svc_uuids)
+                            has_ae20 = SERVICE_UUID in svc_uuids
+                            has_ae22 = CHAR_NOTIFY_MAIN in char_uuids
+                            logger.info("[connect] AE20 服务存在=%s  AE22 特征值存在=%s",
+                                        has_ae20, has_ae22)
+                            if not has_ae20:
+                                logger.warning(
+                                    "[connect] 警告：AE20 服务不在设备暴露的服务列表里！"
+                                    "可能 Windows GATT 缓存了旧的服务列表。"
+                                    "解决：Windows 设置 → 蓝牙 → 找到 CB08 → 删除设备"
+                                    "（移除配对）→ 重新配对 → 再连接。")
+                            if not has_ae22:
+                                logger.warning(
+                                    "[connect] 警告：AE22 特征值不在设备暴露的特征列表里！")
+                        except _aio.TimeoutError:
+                            logger.warning("[connect] get_services() 超时")
+                            raise
+                        except Exception as exc:
+                            logger.warning("[connect] get_services() 异常: %s", exc)
+                        # ---- 订阅 AE22 ----
+                        logger.info("[connect] start_notify(AE22) ...")
+                        await _aio.wait_for(
+                            client.start_notify(CHAR_NOTIFY_MAIN, _self._notify_main),
+                            timeout=CONNECT_TIMEOUT,
+                        )
+                        logger.info("[connect] AE22 订阅成功")
+                        try:
+                            logger.info("[connect] start_notify(AE23) ...")
+                            await _aio.wait_for(
+                                client.start_notify(CHAR_NOTIFY_KEY, _self._notify_key),
+                                timeout=CONNECT_TIMEOUT,
+                            )
+                            logger.info("[connect] AE23 订阅成功")
+                        except Exception as exc:
+                            logger.warning("AE23 订阅失败（忽略）：%s", exc)
+                        logger.info("[connect] 全部完成, 连接就绪")
+                        return  # 正常退出
+                    except _aio.TimeoutError as exc:
+                        last_exc = exc
+                        timeout_this_attempt = True
+                        logger.warning("[connect] 超时 (attempt %d): %s", attempt + 1, exc)
+                        friendly = (
+                            "蓝牙连接超时（订阅通知无响应）。这通常表示录音笔需要先"
+                            "在 Windows「设置 → 蓝牙和其他设备」里手动完成"
+                            "「配对」（常见配对码 0000 / 1234），配对成功后再回到本页面点"
+                            "「连接」；也可以直接点设备旁边的「🔗 配对」按钮触发系统配对弹窗。"
+                        )
+                    except Exception as exc:
+                        last_exc = exc
+                        friendly = _describe_ble_error(exc)
+                        msg_lower = str(exc).lower()
+                        logger.warning("[connect] 异常 (attempt %d): %s: %s",
+                                       attempt + 1, type(exc).__name__, exc)
+                        unreachable_this_attempt = (
+                            "unreachable" in msg_lower or
+                            "could not get gatt services" in msg_lower
+                        )
+                    # 失败清理
+                    try:
+                        if client.is_connected:
+                            await client.disconnect()
+                    except Exception:
+                        pass
+                    _self._client = None
+                    should_retry = (
+                        (unreachable_this_attempt or timeout_this_attempt)
+                        and attempt < max_retries
                     )
-                except Exception as exc:  # 部分固件可能无 AE23
-                    logger.warning("AE23 订阅失败（忽略）：%s", exc)
-                return  # 正常退出
-            except _aio.TimeoutError as exc:
-                last_exc = exc
-                timeout_this_attempt = True
-                friendly = (
-                    "蓝牙连接超时（订阅通知无响应）。这通常表示录音笔需要先"
-                    "在 Windows「设置 → 蓝牙和其他设备」里手动完成"
-                    "「配对」（常见配对码 0000 / 1234），配对成功后再回到本页面点"
-                    "「连接」；也可以直接点设备旁边的「🔗 配对」按钮触发系统配对弹窗。"
-                )
-            except Exception as exc:
-                last_exc = exc
-                friendly = _describe_ble_error(exc)
-                msg_lower = str(exc).lower()
-                unreachable_this_attempt = (
-                    "unreachable" in msg_lower or "could not get gatt services" in msg_lower
-                )
-            # 走到这儿 = 本 attempt 失败了，清理 client
-            try:
-                if client.is_connected:
-                    await client.disconnect()
-            except Exception:
-                pass
-            self._client = None
-            # 既然是同设备的第二条连接，最常见原因是上一条连接还没释放
-            # （浏览器官方测试页仍保持「已连接」、或设备 bond 复位瞬时不可达）。
-            # Unreachable / 超时都应重试，给设备释放和找回的时间。
-            should_retry = (
-                (unreachable_this_attempt or timeout_this_attempt)
-                and attempt < max_retries
-            )
-            if not should_retry:
-                # friendly 如果是 None 就抛原始异常；否则抛中文友好版
-                if not friendly:
-                    raise last_exc
-                raise RuntimeError(friendly) from last_exc
-            # 进入重试：等待 backoff 后重连。超时比 Unreachable 多等一些，
-            # 给 Windows 释放上一条 active 连接（若浏览器官方测试页仍开着）的机会。
-            wait = 3.0 * (attempt + 1) if timeout_this_attempt else backoff * (attempt + 1)
-            logger.info(
-                "连接遇到 %s，%ds 后进行第 %d/%d 次重试（若浏览器官方测试页仍开着，"
-                "请先关闭以释放设备连接）…",
-                "订阅/连接超时" if timeout_this_attempt else "GATT Unreachable",
-                wait, attempt + 2, max_retries + 1,
-            )
-            await _aio.sleep(wait)
+                    if not should_retry:
+                        if not friendly:
+                            raise last_exc
+                        raise RuntimeError(friendly) from last_exc
+                    wait = (3.0 * (attempt + 1) if timeout_this_attempt
+                            else backoff * (attempt + 1))
+                    logger.info(
+                        "连接遇到 %s，%ds 后进行第 %d/%d 次重试（若浏览器官方测试页仍"
+                        "开着，请先关闭以释放设备连接）…",
+                        "订阅/连接超时" if timeout_this_attempt else "GATT Unreachable",
+                        wait, attempt + 2, max_retries + 1,
+                    )
+                    await _aio.sleep(wait)
+            return _do()
+        return await _run_in_mta(factory)
+
     async def disconnect(self) -> None:
-        if self._client is not None:
-            client, self._client = self._client, None
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+        _self = self
+
+        def factory():
+            async def _do():
+                if _self._client is not None:
+                    client, _self._client = _self._client, None
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+            return _do()
+        return await _run_in_mta(factory)
+
     @property
     def is_connected(self) -> bool:
-        return self._client is not None and self._client.is_connected
+        # 注意：_client 只在 MTA 线程里访问/更新，但 bool 引用是原子的，
+        # 读端（主线程）直接检查不会出问题。
+        c = self._client
+        return c is not None and getattr(c, "is_connected", False)
+
     @property
     def mtu(self) -> int:
         """真实 ATT_MTU；bleak 在 Windows/WinRT 上自动协商。"""
-        if self._client is not None:
+        c = self._client
+        if c is not None:
             try:
-                return self._client.mtu_size
+                return c.mtu_size
             except Exception:
                 pass
         return 23
+
     @property
     def payload_size(self) -> int:
         """常规命令的单次写入载荷上限：MTU-3。"""
         return max(self.mtu - 3, DEFAULT_CHUNK)
-    # ------------------------------------------------------------ 写入
+
+    # ============================================================== 写入
     async def write_frame(self, frame: bytes, *, atomic: bool = False) -> None:
         """向 AE21 写入完整协议帧。
         atomic=True 用于 2-2 等必须整帧单写的命令，超过载荷上限时
@@ -441,28 +642,66 @@ class BleTransport:
         if self._client is None:
             raise RuntimeError("BLE 未连接")
         limit = self.payload_size
-        if len(frame) <= limit:
-            await self._client.write_gatt_char(
-                CHAR_WRITE, frame, response=False)
-            return
-        if atomic:
+        if atomic and len(frame) > limit:
             raise RuntimeError(
                 f"帧长 {len(frame)}B 超过单写上限 {limit}B，"
                 "该命令要求整帧单写，请确认 MTU 协商结果")
-        # 普通长帧按 MTU-3 分片顺序写入
-        for i in range(0, len(frame), limit):
-            await self._client.write_gatt_char(
-                CHAR_WRITE, frame[i:i + limit], response=False)
-            await asyncio.sleep(0.01)
-    # ------------------------------------------------------------ 回调
+        _self = self
+        _frame = frame
+        _atomic = atomic
+        _limit = limit
+
+        def factory():
+            async def _do():
+                import asyncio as _aio
+                if _self._client is None:
+                    raise RuntimeError("BLE 未连接")
+                if len(_frame) <= _limit:
+                    await _self._client.write_gatt_char(
+                        CHAR_WRITE, _frame, response=False)
+                    return
+                if _atomic:
+                    raise RuntimeError(
+                        f"帧长 {len(_frame)}B 超过单写上限 {_limit}B，"
+                        "该命令要求整帧单写，请确认 MTU 协商结果")
+                for i in range(0, len(_frame), _limit):
+                    await _self._client.write_gatt_char(
+                        CHAR_WRITE, _frame[i:i + _limit], response=False)
+                    await _aio.sleep(0.01)
+            return _do()
+        return await _run_in_mta(factory)
+
+    # ============================================================== 回调
+    # 说明：回调发生在 MTA 线程。为了保持上层（FrameParser/Recorder 等）
+    # 逻辑线程归属不变，这里用 caller_loop.call_soon_threadsafe 把用户回调
+    # 投递回 connect/pair 时保存的调用方事件循环。若 caller_loop 不存在
+    # （源码 CLI 模式等），则直接在本线程调用，行为与改造前一致。
+    def _dispatch(self, cb, *args) -> None:
+        if cb is None:
+            return
+        loop = self._caller_loop
+        if loop is None or loop.is_closed():
+            try:
+                cb(*args)
+            except Exception:
+                logger.exception("BLE 回调异常（直调模式）")
+            return
+        try:
+            loop.call_soon_threadsafe(cb, *args)
+        except RuntimeError:
+            # loop 已停/关，退化直调
+            try:
+                cb(*args)
+            except Exception:
+                logger.exception("BLE 回调异常（call_soon_threadsafe 失败直调）")
+
     def _notify_main(self, _sender, data: bytearray) -> None:
-        if self.on_main is not None:
-            self.on_main(bytes(data))
+        self._dispatch(self.on_main, bytes(data))
+
     def _notify_key(self, _sender, data: bytearray) -> None:
-        if self.on_key is not None:
-            self.on_key(bytes(data))
+        self._dispatch(self.on_key, bytes(data))
+
     def _handle_disconnect(self, _client) -> None:
         logger.info("设备已断开")
         self._client = None
-        if self.on_disconnect is not None:
-            self.on_disconnect()
+        self._dispatch(self.on_disconnect)

@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const STATE = { status: null };
@@ -23,6 +23,8 @@
   };
   // 转写中文件名集合（用于卡片 busy 标记，单文件和批量都走这里）
   const BUSY_NAMES = new Set();
+  // 下载进行中标记（用于禁用删除等互斥操作）
+  let _dlActive = false;
   // 进度条拖动状态（只绑定一次 document 事件）
   const AUDIO_DRAG = { dragging: false, seekFn: null };
   document.addEventListener("mousemove", (e) => { if (AUDIO_DRAG.dragging && AUDIO_DRAG.seekFn) AUDIO_DRAG.seekFn(e); });
@@ -203,6 +205,32 @@
   const MAX_LOG_LINES = 1200;
   const logBuffer = [];
 
+  // 提示音：用 Web Audio API 生成短促"叮"声，无需外部文件
+  let _audioCtx = null;
+  function playDing(type = "ok") {
+    try {
+      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = _audioCtx;
+      if (ctx.state === "suspended") ctx.resume();
+      // ok: 两音上行（完成）; info: 单音; error: 两音下行
+      const notes = type === "error" ? [440, 330] : type === "info" ? [660] : [660, 880];
+      let t = ctx.currentTime;
+      notes.forEach(freq => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = freq;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.3, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.3);
+        t += 0.15;
+      });
+    } catch (e) { /* 忽略音频错误 */ }
+  }
+
   function log(level, text) {
     const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
     const line = `[${ts}] [${level}] ${text}`;
@@ -267,6 +295,7 @@
     if (on) {
       badge.classList.add("connected");
       badge.querySelector(".status-text").textContent = "已连接";
+      playDing("info");
     } else {
       badge.classList.remove("connected");
       badge.querySelector(".status-text").textContent = "未连接";
@@ -297,6 +326,14 @@
       const msg = JSON.parse(ev.data);
       if (msg.type === "log") {
         log(msg.level, msg.text);
+      } else if (msg.type === "download_start") {
+        _dlActive = true;
+        showProgress(0, msg.expected || 0, msg.filename);
+        toast(`开始下载：${msg.filename}`, "info", 2000);
+        log("INFO", `开始下载：${msg.filename}`);
+        const pw = $("progressWrap");
+        if (pw) pw.scrollIntoView({ behavior: "smooth", block: "center" });
+        updateDlButtons();
       } else if (msg.type === "progress") {
         showProgress(msg.received, msg.expected);
       } else if (msg.type === "realtime") {
@@ -310,19 +347,39 @@
     ws.onclose = () => setTimeout(openWs, 2000);
   }
 
-  function showProgress(received, expected) {
+  let _dlFilename = "";
+  function showProgress(received, expected, filename) {
+    if (filename) _dlFilename = filename;
     $("progressWrap").classList.remove("hidden");
     const pct = expected > 0 ? Math.min(received / expected * 100, 100) : 0;
     $("progressBar").style.width = `${pct}%`;
+    const nameTag = _dlFilename ? `正在下载：${_dlFilename}  ` : "";
     $("progressText").textContent = expected > 0
-      ? `${fmtSize(received)} / ~${fmtSize(expected)} (${pct.toFixed(0)}%)`
-      : fmtSize(received);
+      ? `${nameTag}${fmtSize(received)} / ~${fmtSize(expected)} (${pct.toFixed(0)}%)`
+      : `${nameTag}${fmtSize(received)}`;
   }
 
   function fmtSize(n) {
     if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
     if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
     return `${n} B`;
+  }
+
+  // 根据下载状态启用/禁用设备文件列表中的删除按钮
+  function updateDlButtons() {
+    const tbody = $("fileRows");
+    if (!tbody) return;
+    tbody.querySelectorAll("tr").forEach(tr => {
+      const delBtn = tr.querySelector("button.danger");
+      if (!delBtn) return;
+      if (_dlActive) {
+        delBtn.disabled = true;
+        delBtn.title = "下载中，请稍候";
+      } else {
+        delBtn.disabled = false;
+        delBtn.title = "";
+      }
+    });
   }
 
   // ============ Connection ============
@@ -495,6 +552,7 @@
       tr.appendChild(td);
       tbody.appendChild(tr);
     });
+    updateDlButtons();
   }
 
   $("filesBtn").onclick = () => run($("filesBtn"), async () => {
@@ -513,14 +571,31 @@
   });
 
   async function download(index, offset) {
+    _dlFilename = "";
     showProgress(0, 0);
-    const r = await api("/api/download", { index, offset: offset || 0 });
+    let r;
+    try {
+      r = await api("/api/download", { index, offset: offset || 0 });
+    } catch (err) {
+      _dlActive = false;
+      $("progressWrap").classList.add("hidden");
+      updateDlButtons();
+      throw err;
+    }
+    _dlActive = false;
+    updateDlButtons();
+    // 下载完成，进度条显示 100% 后淡出
+    showProgress(1, 1);
+    _dlFilename = "";
+    setTimeout(() => $("progressWrap").classList.add("hidden"), 1500);
     let kind = "原始码流";
     if (r.is_wav && r.wav) {
       kind = `WAV ${r.wav.sample_rate}Hz ${r.wav.bits}bit ${r.wav.channels}ch` +
         (r.wav.ok ? "（声明长度一致）" : "（声明长度不一致！）");
     }
-    log("OK", `下载完成：${r.local_name}  ${r.size_text}  ${kind}`);
+    const convTag = r.converted_from ? `  [Opus→WAV 转换完成]` : "";
+    log("OK", `下载完成：${r.local_name}  ${r.size_text}  ${kind}${convTag}`);
+    playDing("ok");
     await loadLocal();
 
     // ============ 下载后自动转写 ============
@@ -538,14 +613,32 @@
   }
 
   async function deleteOne(f) {
+    if (_dlActive) {
+      toast("下载进行中，无法删除文件，请等待下载完成", "warn", 3000);
+      return;
+    }
     if (!confirm(`确认删除设备上的 ${f.name}？此操作不可恢复`)) return;
-    const r = await api("/api/delete", { index: f.index });
+    let r;
+    try {
+      r = await api("/api/delete", { index: f.index });
+    } catch (err) {
+      log("ERR", `删除失败：${err.message || err}`);
+      toast(`删除失败：${err.message || err}`, "error", 3000);
+      return;
+    }
     log("OK", r.message);
-    const files = await api("/api/files");
-    renderFiles(files);
+    playDing(r.message.includes("失败") ? "error" : "ok");
+    try {
+      const files = await api("/api/files");
+      renderFiles(files);
+    } catch (e) { /* 列表刷新失败不阻塞 */ }
   }
 
   $("deleteAllBtn").onclick = () => run($("deleteAllBtn"), async () => {
+    if (_dlActive) {
+      toast("下载进行中，无法删除文件，请等待下载完成", "warn", 3000);
+      return;
+    }
     if (!confirm("确认删除设备上的全部录音？此操作不可恢复")) return;
     const r = await api("/api/deleteall", {});
     log("OK", r.message);
@@ -601,6 +694,7 @@
       const r = await api("/api/transcribe", payload);
       applyTranscribeResponse(r, opts);
       log("OK", `转写完成，文本已保存：${r.txt}`);
+      playDing("ok");
     } catch (err) {
       throw err;
     } finally {
@@ -612,7 +706,7 @@
   // 把 /api/transcribe 或 /api/transcript 的响应应用到 UI
   function applyTranscribeResponse(r, opts) {
     opts = opts || { model: "", language: "auto" };
-    $("transcribeCard").classList.remove("hidden");
+    $("transcribeModal").classList.remove("hidden");
     const metaParts = [];
     metaParts.push(`模型：${r.model || opts.model || "-"}`);
     metaParts.push(`语言：${r.language || opts.language || "-"}`);
@@ -950,8 +1044,12 @@
   };
 
   // ============ 关闭转写结果卡片 ============
+  $("transcribeFullscreenBtn").onclick = () => {
+    $("transcribeModal").classList.toggle("is-fullscreen");
+  };
   $("closeTranscribeBtn").onclick = async () => {
-    $("transcribeCard").classList.add("hidden");
+    $("transcribeModal").classList.add("hidden");
+    $("transcribeModal").classList.remove("is-fullscreen");
     // 停止音频播放
     const audioEl = $("transcribeAudio");
     if (audioEl) { audioEl.pause(); audioEl.currentTime = 0; }
@@ -1427,7 +1525,7 @@
       }
     }
     if (combinedText) {
-      $("transcribeCard").classList.remove("hidden");
+      $("transcribeModal").classList.remove("hidden");
       $("transcribeMeta").textContent = `批量转写结果：成功 ${ok}，失败 ${fail}｜模型：${opts.model}`;
       // 批量结果：用单个 seg 显示
       TX.source = null;
@@ -1608,7 +1706,7 @@
           const r = await api("/api/delete_local", { name: f.name });
           toast(`已删除：${(r.deleted || [f.name]).join("、")}`, "success");
           if (TX.source === f.name) {
-            $("transcribeCard").classList.add("hidden");
+            $("transcribeModal").classList.add("hidden");
             TX.source = null; TX.fullText = ""; TX.segments = [];
           }
           await loadLocal();
@@ -1649,7 +1747,7 @@
       try {
         const r = await api("/api/rename_local", { name: oldName, new_name: newStem });
         toast(`已重命名：${baseName} → ${r.new_name}`, "success");
-        if (TX.source === oldName) $("transcribeCard").classList.add("hidden");
+        if (TX.source === oldName) $("transcribeModal").classList.add("hidden");
         await loadLocal();
       } catch (err) {
         toast("重命名失败：" + (err.message || err), "error");
@@ -3082,7 +3180,7 @@
     }
   }
 
-  function _bindTranscribeCardButtons() {
+  function _bindtranscribeModalButtons() {
     // 转写结果卡片：导出 MD 按钮
     const exMd = $("exportMdBtn");
     if (exMd) exMd.onclick = () => {
@@ -3094,7 +3192,7 @@
   // ---------- 统一挂载 ----------
   _bindLLMConfigUI();
   _bindSummaryModalUI();
-  _bindTranscribeCardButtons();
+  _bindtranscribeModalButtons();
   _bindCloseOutside();
 
   // ESC 关闭最上层的模态框
@@ -3114,3 +3212,4 @@
   });
 
 })();
+

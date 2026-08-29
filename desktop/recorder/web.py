@@ -426,7 +426,8 @@ def create_app(output_dir: Path):
                 "size_text": fmt_size(len(result.data)),
                 "local_name": result.path.name if result.path else None,
                 "url": f"/downloads/{result.path.name}" if result.path else None,
-                "is_wav": result.is_wav, "wav": wav}
+                "is_wav": result.is_wav, "wav": wav,
+                "converted_from": result.converted_from}
 
     # ------------------------------------------------ 异常统一处理
 
@@ -540,8 +541,8 @@ def create_app(output_dir: Path):
         body: { target } — 同 /api/connect
         返回: { paired: bool, settings_opened: bool, address: "...", note: "..." }
         """
-        busy_guard()
         body = await read_json(req)
+        busy_guard()
         device = _resolve_device_from_body(body)
         addr = getattr(device, "address", str(device))
         try:
@@ -587,10 +588,10 @@ def create_app(output_dir: Path):
             try:
                 result = await recorder.pair(device)
                 if result is True:
-                    log_push("INFO", f"自动配对完成：{addr}；给设备 1.5 秒冷却后连接")
-                    await asyncio.sleep(1.5)   # 配对完成（尤其 bleak cross-platform pair 会
+                    log_push("INFO", f"自动配对完成：{addr}；给设备 3 秒冷却后连接")
+                    await asyncio.sleep(3.0)   # 配对完成（尤其 bleak cross-platform pair 会
                                               # 临时 connect→disconnect）后设备会 bond-reset，
-                                              # 给 1.5s 避免"GATT services: Unreachable"
+                                              # 给 3s 避免"GATT services: Unreachable"
                 elif result == "settings_opened":
                     log_push("WARN", "自动配对已跳转 Windows「添加设备」向导——请先在系统里"
                                      "完成配对（PIN 0000/1234），配完后再手动点连接。")
@@ -692,22 +693,46 @@ def create_app(output_dir: Path):
     @app.post("/api/download")
     async def api_download(req: Request):
         require_connected()
-        busy_guard()
         body = await read_json(req)
+        busy_guard()
         entry = entry_by_index(body.get("index"))
         offset = int(body.get("offset") or 0)
         filename = body.get("filename") or None
+        dl_name = filename or entry.candidate_names()[0]
+        broadcast({"type": "download_start", "filename": dl_name,
+                    "expected": entry.size if not dl_name.lower().endswith(".wav")
+                    else entry.estimated_wav_size})
         async with op_lock:
             result = await recorder.download(entry, offset=offset,
                                              filename=filename)
         on_progress(len(result.data), len(result.data))   # 收尾推 100%
+        # Opus 自动转 WAV（下载体积小速度快，本地用 ffmpeg 转）
+        if not result.is_wav and result.path and \
+                result.filename.lower().endswith(".opus"):
+            try:
+                raw_head = result.data[:16].hex()
+                log_push("INFO", f"Opus→WAV 转换中（头部: {raw_head}，"
+                                 f"大小: {fmt_size(len(result.data))}）")
+                loop = asyncio.get_running_loop()
+                wav_path = await loop.run_in_executor(
+                    None, recorder._convert_opus_to_wav,
+                    result.path, entry)
+                result.converted_from = "opus"
+                result.data = wav_path.read_bytes()
+                result.path = wav_path
+                result.is_wav = True
+                result.wav_info = P.inspect_wav(result.data)
+                log_push("OK", f"Opus→WAV 转换完成：{wav_path.name} "
+                                f"({fmt_size(len(result.data))})")
+            except Exception as exc:
+                log_push("WARN", f"Opus→WAV 转换失败：{exc}，保留原始 Opus 文件")
         return download_json(result)
 
     @app.post("/api/segment")
     async def api_segment(req: Request):
         require_connected()
-        busy_guard()
         body = await read_json(req)
+        busy_guard()
         entry = entry_by_index(body.get("index"))
         start, end = int(body.get("start", 0)), int(body.get("end", 0))
         if not (0 <= start < end):
@@ -725,22 +750,31 @@ def create_app(output_dir: Path):
     @app.post("/api/delete")
     async def api_delete(req: Request):
         require_connected()
-        entry = entry_by_index((await read_json(req)).get("index"))
-        code = await recorder.delete_file(entry)
+        body = await read_json(req)
+        busy_guard()
+        async with op_lock:
+            entry = entry_by_index(body.get("index"))
+            code = await recorder.delete_file(entry)
         if code is None:
             msg = "删除命令已发送（该固件不回应答），请刷新列表核对"
+        elif code == 0:
+            msg = "删除成功"
         else:
-            msg = "删除成功" if code == 0 else f"删除失败（code={code}）"
+            msg = f"删除失败（code={code}），请刷新列表核对"
         return {"message": msg}
 
     @app.post("/api/deleteall")
     async def api_deleteall():
         require_connected()
-        code = await recorder.delete_all()
+        busy_guard()
+        async with op_lock:
+            code = await recorder.delete_all()
         if code is None:
             msg = "删除命令已发送（该固件不回应答），请刷新列表核对"
+        elif code == 0:
+            msg = "全部删除成功"
         else:
-            msg = "全部删除成功" if code == 0 else f"删除失败（code={code}）"
+            msg = f"删除失败（code={code}），请刷新列表核对"
         return {"message": msg}
 
     @app.post("/api/convert_raw_opus")
@@ -751,8 +785,8 @@ def create_app(output_dir: Path):
         replace=False → 输出为 {stem}.oggified.opus（不碰原文件）
         replace=True  → 原文件重命名备份为 *.raw_opus_backup，成品覆盖原文件名
         """
-        busy_guard()
         body = await read_json(req)
+        busy_guard()
         name = str(body.get("name") or "")
         if not name:
             raise RecorderError("缺少 name")
@@ -767,8 +801,8 @@ def create_app(output_dir: Path):
 
     @app.post("/api/transcribe")
     async def api_transcribe(req: Request):
-        busy_guard()
         body = await read_json(req)
+        busy_guard()
         language = str(body.get("language") or "auto")
         model = str(body.get("model") or "sensevoice").lower()
         spk = bool(body.get("spk"))
@@ -1360,8 +1394,8 @@ def create_app(output_dir: Path):
         """基于转写结果生成结构化 AI 摘要。
         body: {name: 源音频相对路径, force: bool（忽略缓存重算）}
         """
-        busy_guard()
         body = await read_json(req)
+        busy_guard()
         name_raw = str(body.get("name") or "")
         force = bool(body.get("force", False))
         audio_path = _resolve_safe_name(recorder.output_dir, name_raw)
@@ -1474,8 +1508,8 @@ def create_app(output_dir: Path):
           - mindmap_md 写入同目录的 .mindmap.md；读缓存时会一起透出
         """
         import json as _json
-        busy_guard()
         body = await read_json(req)
+        busy_guard()
         name_raw = str(body.get("name") or "")
         audio_path = _resolve_safe_name(recorder.output_dir, name_raw)
         if not audio_path.is_file():

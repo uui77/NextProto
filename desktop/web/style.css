@@ -720,22 +720,28 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  transition: opacity 0.4s ease;
 }
+.progress-section.hidden { display: none; }
 .progress-bar {
   flex: 1;
-  height: 6px;
-  background: var(--bg-secondary);
-  border-radius: 3px;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
   overflow: hidden;
 }
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), #5856d6);
-  border-radius: 3px;
+  border-radius: 4px;
   transition: width 0.3s ease;
+  width: 0%;
 }
-.progress-text { font-size: 13px; color: var(--fg-tertiary); font-family: var(--font-mono); min-width: 140px; }
+.progress-text { font-size: 12px; color: var(--fg-secondary); font-family: var(--font-mono); min-width: 140px; text-align: right; }
 
 /* ============ Transcription ============ */
 .transcribe-audio {
@@ -1465,13 +1471,13 @@ body {
 .seg-spk.spk-5 { background: rgba(0, 199, 190, 0.14);  color: #008f8a; }
 
 /* 按钮/控件对齐：转写结果 actions 的按钮垂直居中 */
-#transcribeCard .card-actions {
+#transcribeModal .card-actions {
   flex-wrap: wrap;
   align-items: center;
   row-gap: 8px;
 }
-#transcribeCard .card-actions .btn.btn-ghost,
-#transcribeCard .card-actions .btn.btn-primary {
+#transcribeModal .card-actions .btn.btn-ghost,
+#transcribeModal .card-actions .btn.btn-primary {
   padding: 7px 12px;
   font-size: 13px;
   gap: 6px;
@@ -1986,11 +1992,11 @@ body {
 }
 
 /* 转写结果卡片关闭按钮（最右侧） */
-#transcribeCard .close-card-btn {
+#transcribeModal .close-card-btn {
   margin-left: auto;
   flex-shrink: 0;
 }
-#transcribeCard .close-card-btn:hover {
+#transcribeModal .close-card-btn:hover {
   color: var(--danger);
   border-color: #fecaca;
   background: #fef2f2;
@@ -2038,6 +2044,34 @@ body {
 .modal-header .btn-icon {
   width: 32px; height: 32px;
 }
+.modal-header-actions { display: flex; gap: 4px; }
+#transcribeModal.is-fullscreen .modal-card {
+  max-width: 100vw !important;
+  width: 100vw !important;
+  max-height: 100vh !important;
+  height: 100vh;
+  margin: 0 !important;
+  border-radius: 0;
+}
+#transcribeModal.is-fullscreen .modal-body {
+  max-height: calc(100vh - 120px) !important;
+}
+.modal-sub {
+  font-size: 13px;
+  color: var(--fg-tertiary);
+  margin-top: 2px;
+}
+.modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.modal-toolbar .search-input-wrap { flex: 1; min-width: 180px; }
+#transcribeModal .modal-body { overflow-y: auto; max-height: calc(92vh - 120px); }
+#transcribeModal .transcribe-body { flex: 1; }
 .modal-body {
   padding: 20px;
   display: flex;

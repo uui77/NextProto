@@ -120,8 +120,8 @@ class TestDecoders(unittest.TestCase):
     def test_candidate_names_rebuild_extension(self):
         entry = FileEntry(duration=1, size=1, name="note20260710-162938.")
         self.assertEqual(entry.candidate_names(), [
-            "note20260710-162938.wav",
             "note20260710-162938.opus",
+            "note20260710-162938.wav",
             "note20260710-162938.",
         ])
     def test_estimated_wav_size(self):
