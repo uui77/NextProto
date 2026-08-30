@@ -588,10 +588,10 @@ def create_app(output_dir: Path):
             try:
                 result = await recorder.pair(device)
                 if result is True:
-                    log_push("INFO", f"自动配对完成：{addr}；给设备 3 秒冷却后连接")
-                    await asyncio.sleep(3.0)   # 配对完成（尤其 bleak cross-platform pair 会
+                    log_push("INFO", f"自动配对完成：{addr}；给设备 5 秒冷却后连接")
+                    await asyncio.sleep(5.0)   # 配对完成（尤其 bleak cross-platform pair 会
                                               # 临时 connect→disconnect）后设备会 bond-reset，
-                                              # 给 3s 避免"GATT services: Unreachable"
+                                              # 给 5s 避免"GATT services: Unreachable"
                 elif result == "settings_opened":
                     log_push("WARN", "自动配对已跳转 Windows「添加设备」向导——请先在系统里"
                                      "完成配对（PIN 0000/1234），配完后再手动点连接。")

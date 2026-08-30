@@ -146,6 +146,13 @@ _WINERROR_HINTS = {
     -2147023922: (
         "未找到蓝牙适配器。请确认电脑带有蓝牙功能，且在设备管理器中没有被禁用。"
     ),
+    -2147467260: (
+        "蓝牙接口不可用（E_NOINTERFACE）。这通常是 Windows 蓝牙服务异常导致的。\n"
+        "请尝试：\n"
+        "  1) 重启蓝牙服务：Win+R → services.msc → 找到 Bluetooth Support Service → 右键重启\n"
+        "  2) 在 Windows 设置 → 蓝牙中删除录音笔配对记录，重新扫描配对\n"
+        "  3) 如果频繁出现，重启电脑后重试"
+    ),
 }
 
 
@@ -495,6 +502,7 @@ class BleTransport:
                         connect_target, disconnected_callback=_self._handle_disconnect)
                     unreachable_this_attempt = False
                     timeout_this_attempt = False
+                    current_step = "connect"
                     try:
                         logger.info("[connect] attempt %d/%d: client.connect() ...",
                                     attempt + 1, max_retries + 1)
@@ -502,6 +510,7 @@ class BleTransport:
                         logger.info("[connect] connect() OK, is_connected=%s", client.is_connected)
                         _self._client = client
                         # ---- 诊断：打印设备暴露的所有 GATT 服务和特征值 ----
+                        current_step = "get_services"
                         try:
                             svcs = await _aio.wait_for(client.get_services(),
                                                        timeout=CONNECT_TIMEOUT)
@@ -532,6 +541,7 @@ class BleTransport:
                         except Exception as exc:
                             logger.warning("[connect] get_services() 异常: %s", exc)
                         # ---- 订阅 AE22 ----
+                        current_step = "start_notify(AE22)"
                         logger.info("[connect] start_notify(AE22) ...")
                         await _aio.wait_for(
                             client.start_notify(CHAR_NOTIFY_MAIN, _self._notify_main),
@@ -539,6 +549,7 @@ class BleTransport:
                         )
                         logger.info("[connect] AE22 订阅成功")
                         try:
+                            current_step = "start_notify(AE23)"
                             logger.info("[connect] start_notify(AE23) ...")
                             await _aio.wait_for(
                                 client.start_notify(CHAR_NOTIFY_KEY, _self._notify_key),
@@ -552,12 +563,21 @@ class BleTransport:
                     except _aio.TimeoutError as exc:
                         last_exc = exc
                         timeout_this_attempt = True
-                        logger.warning("[connect] 超时 (attempt %d): %s", attempt + 1, exc)
+                        logger.warning("[connect] 超时 (attempt %d, step=%s): %s",
+                                       attempt + 1, current_step, exc)
+                        step_hint = {
+                            "connect": "BLE 连接建立",
+                            "get_services": "GATT 服务发现",
+                            "start_notify(AE22)": "AE22 通知订阅",
+                            "start_notify(AE23)": "AE23 通知订阅",
+                        }.get(current_step, current_step)
                         friendly = (
-                            "蓝牙连接超时（订阅通知无响应）。这通常表示录音笔需要先"
-                            "在 Windows「设置 → 蓝牙和其他设备」里手动完成"
-                            "「配对」（常见配对码 0000 / 1234），配对成功后再回到本页面点"
-                            "「连接」；也可以直接点设备旁边的「🔗 配对」按钮触发系统配对弹窗。"
+                            f"蓝牙连接超时（{step_hint} 步骤无响应）。"
+                            "这通常表示录音笔需要先在 Windows「设置 → 蓝牙和其他设备」里"
+                            "手动完成「配对」（常见配对码 0000 / 1234），配对成功后再回到"
+                            "本页面点「连接」；也可以直接点设备旁边的「🔗 配对」按钮触发"
+                            "系统配对弹窗。如果已配对仍超时，尝试在 Windows 蓝牙设置中"
+                            "删除设备后重新配对。"
                         )
                     except Exception as exc:
                         last_exc = exc
