@@ -204,7 +204,7 @@ class BleTransport:
     线程的事件循环，保证上层 FrameParser 等逻辑的线程归属与之前一致。
     """
 
-    CONNECT_TIMEOUT = 20.0       # BLE 连接/订阅显式超时（秒）。设备刚配对完 GATT 可能慢，给足 20s。
+    CONNECT_TIMEOUT = 12.0       # BLE 连接/订阅显式超时（秒）
     PAIR_TIMEOUT    = 20.0       # 配对超时（秒）：需要用户在系统弹窗里点确认，留久一点。
 
     def __init__(self) -> None:
@@ -212,6 +212,7 @@ class BleTransport:
         self.on_main: Optional[Callable[[bytes], None]] = None
         self.on_key: Optional[Callable[[bytes], None]] = None
         self.on_disconnect: Optional[Callable[[], None]] = None
+        self.on_connect_progress: Optional[Callable[[str], None]] = None
         # 调用方事件循环：回调时用 call_soon_threadsafe 把事件投递回去
         self._caller_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -488,7 +489,7 @@ class BleTransport:
         def factory():
             async def _do():
                 import asyncio as _aio
-                max_retries = 2
+                max_retries = 1
                 backoff = 2.0
                 last_exc = None
                 friendly: Optional[str] = None
@@ -503,7 +504,16 @@ class BleTransport:
                     unreachable_this_attempt = False
                     timeout_this_attempt = False
                     current_step = "connect"
+
+                    def _progress(msg):
+                        if _self.on_connect_progress:
+                            try:
+                                _self.on_connect_progress(msg)
+                            except Exception:
+                                pass
+
                     try:
+                        _progress(f"正在建立 BLE 连接…（第 {attempt+1}/{max_retries+1} 次）")
                         logger.info("[connect] attempt %d/%d: client.connect() ...",
                                     attempt + 1, max_retries + 1)
                         await _aio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT)
@@ -511,6 +521,7 @@ class BleTransport:
                         _self._client = client
                         # ---- 诊断：打印设备暴露的所有 GATT 服务和特征值 ----
                         current_step = "get_services"
+                        _progress("正在发现 GATT 服务…")
                         try:
                             svcs = await _aio.wait_for(client.get_services(),
                                                        timeout=CONNECT_TIMEOUT)
@@ -542,6 +553,7 @@ class BleTransport:
                             logger.warning("[connect] get_services() 异常: %s", exc)
                         # ---- 订阅 AE22 ----
                         current_step = "start_notify(AE22)"
+                        _progress("正在订阅通知（AE22）…")
                         logger.info("[connect] start_notify(AE22) ...")
                         await _aio.wait_for(
                             client.start_notify(CHAR_NOTIFY_MAIN, _self._notify_main),
@@ -606,6 +618,7 @@ class BleTransport:
                         raise RuntimeError(friendly) from last_exc
                     wait = (3.0 * (attempt + 1) if timeout_this_attempt
                             else backoff * (attempt + 1))
+                    _progress(f"{'订阅/连接超时' if timeout_this_attempt else 'GATT 不可达'}，{wait:g}s 后重试…")
                     logger.info(
                         "连接遇到 %s，%ds 后进行第 %d/%d 次重试（若浏览器官方测试页仍"
                         "开着，请先关闭以释放设备连接）…",

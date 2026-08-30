@@ -603,6 +603,11 @@ def create_app(output_dir: Path):
             except Exception as exc:
                 logger.info("自动配对未完成（继续尝试连接）：%s", exc)
 
+        # 连接进度推送到前端（从 MTA worker 线程 call_soon_threadsafe 回主线程）
+        _main_loop = asyncio.get_running_loop()
+        def _on_connect_progress(msg):
+            _main_loop.call_soon_threadsafe(log_push, "INFO", msg)
+        recorder.transport.on_connect_progress = _on_connect_progress
         await recorder.connect(device)
         synced = True
         try:
