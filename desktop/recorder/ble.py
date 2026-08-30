@@ -646,8 +646,8 @@ class BleTransport:
         # 阻塞时，内层 wait_for 无法触发，需要主线程的外层超时来兜底
         OUTER_TIMEOUT = 20.0  # 主线程外层超时：MTA worker 阻塞时兜底
         try:
-            return await _aio.wait_for(_run_in_mta(factory), timeout=OUTER_TIMEOUT)
-        except _aio.TimeoutError:
+            return await asyncio.wait_for(_run_in_mta(factory), timeout=OUTER_TIMEOUT)
+        except asyncio.TimeoutError:
             # MTA worker 事件循环被阻塞，重启以恢复
             if self.on_connect_progress:
                 try:
