@@ -91,6 +91,21 @@ class _MtaWorker:
                 except Exception:
                     pass
 
+    def restart(self) -> None:
+        """重启 MTA 工作线程（当 BLE 操作阻塞事件循环时用于恢复）。"""
+        old_loop = self._loop
+        old_thread = self._thread
+        # 标记旧 loop 停止
+        if old_loop:
+            try:
+                old_loop.call_soon_threadsafe(old_loop.stop)
+            except Exception:
+                pass
+        # 重置状态，下次 run() 时会自动启动新线程
+        self._loop = None
+        self._thread = None
+        self._ready_evt = threading.Event()
+
     # ---- 公共 API：把一个协程/工厂丢到 MTA loop 执行，对调用方表现为 awaitable ----
     async def run(self, coro_factory: Callable[[], Awaitable[_T]],
                   *, caller_loop: Optional[asyncio.AbstractEventLoop] = None) -> _T:
@@ -627,7 +642,24 @@ class BleTransport:
                     )
                     await _aio.sleep(wait)
             return _do()
-        return await _run_in_mta(factory)
+        # 外层超时（主线程事件循环）：当 MTA worker 事件循环被 BLE 操作
+        # 阻塞时，内层 wait_for 无法触发，需要主线程的外层超时来兜底
+        OUTER_TIMEOUT = 20.0  # 主线程外层超时：MTA worker 阻塞时兜底
+        try:
+            return await _aio.wait_for(_run_in_mta(factory), timeout=OUTER_TIMEOUT)
+        except _aio.TimeoutError:
+            # MTA worker 事件循环被阻塞，重启以恢复
+            if self.on_connect_progress:
+                try:
+                    self.on_connect_progress("连接超时，正在恢复 BLE 线程…")
+                except Exception:
+                    pass
+            _MTA.restart()
+            raise RuntimeError(
+                "蓝牙连接超时（BLE 操作无响应，已自动恢复）。"
+                "请尝试：1) 在 Windows「设置 → 蓝牙」中删除设备后重新配对；"
+                "2) 确认设备已开机且在附近；3) 重试连接。"
+            )
 
     async def disconnect(self) -> None:
         _self = self
