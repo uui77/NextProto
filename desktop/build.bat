@@ -11,8 +11,14 @@ echo.
 echo [1/5] 检查工作目录 ...
 cd /d "%~dp0"
 set "PROJECT_ROOT=%cd%"
-cd record
+set "RECORD_DIR=%PROJECT_ROOT%"
 echo       项目根：%PROJECT_ROOT%
+echo       当前目录：%cd%
+if not exist main.py (
+    echo [错误] 找不到 main.py，请在 desktop\ 目录下执行本脚本
+    pause
+    exit /b 1
+)
 
 REM ============================================================
 echo.

@@ -583,15 +583,35 @@ def create_app(output_dir: Path):
         auto_pair = bool(body.get("auto_pair"))
         addr = getattr(device, "address", str(device))
 
-        # 如果用户要求自动配对：先尝试 pair 一次（失败不终止 connect 流程）
-        if auto_pair and not recorder.is_connected:
+        # 连接进度推送到前端（从 MTA worker 线程 call_soon_threadsafe 回主线程）
+        _main_loop = asyncio.get_running_loop()
+        def _on_connect_progress(msg):
+            _main_loop.call_soon_threadsafe(log_push, "INFO", msg)
+        recorder.transport.on_connect_progress = _on_connect_progress
+
+        # 策略：先用"快速模式"直接连接（设备可能已配对），6 秒内不出结果
+        # 就判失败转入配对；配对冷却后再用标准模式（2 轮重试）连接。
+        import time as _t
+        _t0 = _t.time()
+        try:
+            log_push("INFO", "尝试直接连接（快速探测，最长 7 秒）…")
+            await recorder.connect(device, quick=True)
+        except Exception as first_err:
+            if not auto_pair:
+                raise
+            err_msg = str(first_err)
+            log_push("WARN", f"直接连接失败（{_t.time()-_t0:.0f}s）：{err_msg[:80]}，尝试配对后重试…")
+            # 清理旧连接
+            try:
+                await recorder.disconnect()
+            except Exception:
+                pass
+            # 配对
             try:
                 result = await recorder.pair(device)
                 if result is True:
-                    log_push("INFO", f"自动配对完成：{addr}；给设备 5 秒冷却后连接")
-                    await asyncio.sleep(5.0)   # 配对完成（尤其 bleak cross-platform pair 会
-                                              # 临时 connect→disconnect）后设备会 bond-reset，
-                                              # 给 5s 避免"GATT services: Unreachable"
+                    log_push("INFO", f"自动配对完成：{addr}；给设备 8 秒冷却后连接")
+                    await asyncio.sleep(8.0)
                 elif result == "settings_opened":
                     log_push("WARN", "自动配对已跳转 Windows「添加设备」向导——请先在系统里"
                                      "完成配对（PIN 0000/1234），配完后再手动点连接。")
@@ -602,13 +622,8 @@ def create_app(output_dir: Path):
                     })
             except Exception as exc:
                 logger.info("自动配对未完成（继续尝试连接）：%s", exc)
-
-        # 连接进度推送到前端（从 MTA worker 线程 call_soon_threadsafe 回主线程）
-        _main_loop = asyncio.get_running_loop()
-        def _on_connect_progress(msg):
-            _main_loop.call_soon_threadsafe(log_push, "INFO", msg)
-        recorder.transport.on_connect_progress = _on_connect_progress
-        await recorder.connect(device)
+            # 重试连接（标准模式，允许完整 2 轮重试）
+            await recorder.connect(device)
         synced = True
         try:
             await recorder.sync_time()   # 连接后自动同步时间（0-0）
@@ -758,8 +773,32 @@ def create_app(output_dir: Path):
         body = await read_json(req)
         busy_guard()
         async with op_lock:
-            entry = entry_by_index(body.get("index"))
+            # 1) 先用缓存的 entry 拿到"关键标识"（name+size+duration 三元组）
+            cached = entry_by_index(body.get("index"))
+            # 2) 立即从设备重新拉一次列表，按三元组匹配最新 entry.raw
+            #    （如果页面缓存的条目是旧列表，删除可能被设备以 code=1 拒绝）
+            try:
+                fresh_files = await recorder.get_file_list()
+                S["files"] = fresh_files
+            except Exception:
+                fresh_files = S["files"]  # 拉取失败兜底用缓存
+            def _match_key(e):
+                return (e.name.strip(), e.size, e.duration)
+            target_key = _match_key(cached)
+            entry = cached
+            for fe in fresh_files:
+                if _match_key(fe) == target_key:
+                    entry = fe
+                    break
+            log_push("INFO", f"删除文件：{entry.name}（{fmt_size(entry.size)}，"
+                             f"{entry.raw.hex()}）")
             code = await recorder.delete_file(entry)
+            # 删除成功后刷新列表
+            if code == 0:
+                try:
+                    S["files"] = await recorder.get_file_list()
+                except Exception:
+                    pass
         if code is None:
             msg = "删除命令已发送（该固件不回应答），请刷新列表核对"
         elif code == 0:
@@ -774,6 +813,11 @@ def create_app(output_dir: Path):
         busy_guard()
         async with op_lock:
             code = await recorder.delete_all()
+            if code == 0:
+                try:
+                    S["files"] = await recorder.get_file_list()
+                except Exception:
+                    pass
         if code is None:
             msg = "删除命令已发送（该固件不回应答），请刷新列表核对"
         elif code == 0:

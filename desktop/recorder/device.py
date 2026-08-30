@@ -114,9 +114,9 @@ class Recorder:
         self._loop = asyncio.get_running_loop()
         return await self.transport.pair(device)
 
-    async def connect(self, device) -> None:
+    async def connect(self, device, *, quick: bool = False) -> None:
         self._loop = asyncio.get_running_loop()
-        await self.transport.connect(device)
+        await self.transport.connect(device, quick=quick)
 
     async def disconnect(self) -> None:
         self._cleanup_sessions(RecorderError("连接已断开"))
@@ -456,11 +456,52 @@ class Recorder:
                 f"下载空闲超时，已接收 {len(self._dl_buf)}B，传输中断"))
 
     async def abort_download(self) -> None:
-        """2-7 主动终止导入。"""
+        """2-7 主动终止导入。
+        设备端可能残留多种状态（导入中/等待导入/已完成未清理），
+        只发一个 CMD=7 可能丢帧或被忽略，因此连发 3 次并等待应答。
+        同时尝试终止实时转写会话（先发暂停→再停止，避免唤醒录音子系统）。
+        """
+        logger.info("[abort_download] 开始终止导入会话（FILE_IMPORT_ABORT x3 + RT 清理）")
+        # 清理实时转写状态：先暂停（1-3, 1=pause）再停止（1-2）。
+        # 注意：**绝对不能发 PAUSE_RESUME=0x00（resume）**，会唤醒实时录音
+        # 子系统导致设备内部文件句柄被锁，删除返回 code=1。
+        try:
+            await self._send(P.TYPE_REALTIME, P.RT_PAUSE_RESUME, b"\x01")  # 先暂停
+            await asyncio.sleep(0.03)
+        except Exception:
+            pass
+        try:
+            await self._send(P.TYPE_REALTIME, P.RT_STOP)   # 再停止
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass
+        import time as _t
+        _got_resp = False
+        for _i in range(3):
+            _t0 = _t.time()
+            try:
+                await self._request(
+                    P.TYPE_FILE, P.FILE_IMPORT_ABORT, b"",
+                    P.FILE_ABORT_RESP, timeout=0.8)
+                _got_resp = True
+                logger.info("[abort_download] 第 %d 次收到 FILE_ABORT_RESP（%.1fms）",
+                            _i + 1, (_t.time() - _t0) * 1000)
+                return
+            except asyncio.TimeoutError:
+                logger.info("[abort_download] 第 %d 次超时未应答（%.1fms）",
+                            _i + 1, (_t.time() - _t0) * 1000)
+                continue
+            except Exception as _e:
+                logger.info("[abort_download] 第 %d 次异常: %s: %s",
+                            _i + 1, type(_e).__name__, _e)
+                await asyncio.sleep(0.05)
+                continue
+        # 3 次都没收到应答：最后用 fire-and-forget 兜底发一次
         try:
             await self._send(P.TYPE_FILE, P.FILE_IMPORT_ABORT)
         except Exception:
             pass
+        logger.info("[abort_download] 结束（收到应答=%s）", _got_resp)
 
     def _save_download(self, filename: str, entry: FileEntry,
                        data: bytes) -> Path:
@@ -526,37 +567,100 @@ class Recorder:
     # ============================================================ 文件删除
 
     async def delete_file(self, entry: FileEntry) -> Optional[int]:
-        """2-8 删除单个文件（28B 原始条目）；旧固件可能无 2-13 应答。"""
-        # 先终止设备端可能残留的导入会话，否则设备会返回 code=1（拒绝删除）
-        await self.abort_download()
-        # 清理本地下载会话状态，防止残留帧误路由到下载处理器
-        self._dl_active = False
-        self._dl_future = None
-        self._cancel_download_idle()
-        await asyncio.sleep(0.15)
-        try:
-            frame = await self._request(
-                P.TYPE_FILE, P.FILE_DELETE_ONE, entry.raw,
-                P.FILE_DELETE_ONE_RESP, timeout=DELETE_RESP_TIMEOUT)
-            return frame.body[0] if frame.body else None
-        except asyncio.TimeoutError:
-            return None  # 已发送，固件未应答
+        """2-8 删除单个文件。
+
+        双帧格式探测：
+          格式 A（协议文档标准）：28B 列表条目  = time4BE + size4BE + name20
+          格式 B（兼容部分固件）：28B 导入格式  = offset4LE(0) + filename24（带扩展名）
+        若 A 返回 code=1，则用 entry.candidate_names() 逐个填充 B 格式重试。
+        """
+        import time as _t
+        import struct as _st
+
+        # ---- 生成候选删除帧 payload ----
+        payloads: List[bytes] = []
+        # 格式 A：列表原始 28B
+        payloads.append(entry.raw)
+        fmt_a_hex = entry.raw.hex()
+        # 格式 B：每个候选文件名 1 个，共 3 个（.opus / .wav / 截断名）
+        fmt_b_info: List[str] = []
+        for cand in entry.candidate_names():
+            name_24 = P.encode_filename_24(cand)
+            payload = _st.pack("<I", 0) + name_24  # offset=0 LE + filename 24B
+            payloads.append(payload)
+            fmt_b_info.append(f"{cand}({payload.hex()})")
+        logger.info("[delete_file] 候选帧数=%d：A=%s；B=%s",
+                    len(payloads), fmt_a_hex, " | ".join(fmt_b_info))
+
+        last_code: Optional[int] = None
+        for pi, del_payload in enumerate(payloads):
+            fmt_label = ("A列表条目" if pi == 0
+                         else f"B导入名({entry.candidate_names()[pi-1]})")
+            # 每种格式最多重试 2 次（会话清理可能需要多轮）
+            for attempt in range(2):
+                _t0 = _t.time()
+                await self.abort_download()
+                self._dl_active = False
+                self._dl_future = None
+                self._cancel_download_idle()
+                wait_s = 0.4 + 0.3 * attempt + 0.2 * pi
+                await asyncio.sleep(wait_s)
+                logger.info("[delete_file] 帧%s #%d/%d：payload=%s  等待%.0fms",
+                            fmt_label, attempt + 1, 2,
+                            del_payload.hex(), wait_s * 1000)
+                try:
+                    frame = await self._request(
+                        P.TYPE_FILE, P.FILE_DELETE_ONE, del_payload,
+                        P.FILE_DELETE_ONE_RESP, timeout=DELETE_RESP_TIMEOUT)
+                    code = frame.body[0] if frame.body else None
+                except asyncio.TimeoutError:
+                    logger.info("[delete_file] 帧%s #%d：超时未应答（%.0fms）",
+                                fmt_label, attempt + 1, (_t.time() - _t0) * 1000)
+                    return None  # 已发送，固件未应答
+                elapsed_ms = (_t.time() - _t0) * 1000
+                logger.info("[delete_file] 帧%s #%d：返回 code=%s  耗时%.0fms",
+                            fmt_label, attempt + 1, code, elapsed_ms)
+                if code == 0:
+                    return 0
+                last_code = code
+                # code=1 才重试；其他非零 code 直接跳到下一帧格式
+                if code != 1:
+                    break
+        return last_code
 
     async def delete_all(self) -> Optional[int]:
         """2-9 删除全部文件；旧固件可能无 2-10 应答。"""
-        # 同 delete_file：先清理残留导入会话
-        await self.abort_download()
-        self._dl_active = False
-        self._dl_future = None
-        self._cancel_download_idle()
-        await asyncio.sleep(0.15)
-        try:
-            frame = await self._request(
-                P.TYPE_FILE, P.FILE_DELETE_ALL, b"",
-                P.FILE_DELETE_ALL_RESP, timeout=DELETE_RESP_TIMEOUT)
-            return frame.body[0] if frame.body else None
-        except asyncio.TimeoutError:
-            return None
+        max_attempts = 3
+        last_code: Optional[int] = None
+        import time as _t
+        for attempt in range(max_attempts):
+            _t0 = _t.time()
+            await self.abort_download()
+            self._dl_active = False
+            self._dl_future = None
+            self._cancel_download_idle()
+            wait_s = 0.3 + 0.3 * attempt + (0.1 if attempt == 2 else 0)
+            await asyncio.sleep(wait_s)
+            logger.info("[delete_all] 第 %d/%d 次：等待%.0fms",
+                        attempt + 1, max_attempts, wait_s * 1000)
+            try:
+                frame = await self._request(
+                    P.TYPE_FILE, P.FILE_DELETE_ALL, b"",
+                    P.FILE_DELETE_ALL_RESP, timeout=DELETE_RESP_TIMEOUT)
+                code = frame.body[0] if frame.body else None
+            except asyncio.TimeoutError:
+                logger.info("[delete_all] 第 %d 次：超时未应答（%.0fms）",
+                            attempt + 1, (_t.time() - _t0) * 1000)
+                return None
+            elapsed_ms = (_t.time() - _t0) * 1000
+            logger.info("[delete_all] 第 %d 次：返回 code=%s  耗时%.0fms",
+                        attempt + 1, code, elapsed_ms)
+            if code == 0:
+                return 0
+            last_code = code
+            if attempt == max_attempts - 1:
+                break
+        return last_code
 
     # ============================================================ 历史 raw OPUS 转换
     def convert_raw_opus_to_ogg(self, name: str,

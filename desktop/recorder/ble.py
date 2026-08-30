@@ -484,8 +484,13 @@ class BleTransport:
                 address,
             )
 
-    async def connect(self, device) -> None:
+    async def connect(self, device, *, quick: bool = False) -> None:
         """连接并订阅 AE22（必须）与 AE23（按键，尽力订阅）。
+
+        参数：
+          quick=True 快速模式：仅 1 次尝试 + 每步超时减半，用于"设备可能已
+                    配对"时的快速探测。失败则抛异常，由上层决定是否走配对
+                    再用标准模式重试。避免未配对设备等完整 2 轮（~27s）。
 
         说明：
           - 显式加 connect+notify 的总超时 CONNECT_TIMEOUT；
@@ -499,12 +504,31 @@ class BleTransport:
             self._caller_loop = None
 
         _self = self
-        CONNECT_TIMEOUT = self.CONNECT_TIMEOUT
+        if quick:
+            # 快速模式：仅1次机会，每步超时减半（~6s 内出结果）
+            CONNECT_TIMEOUT = self.CONNECT_TIMEOUT * 0.5
+            _outer_timeout_factor = 0.7  # 外层也相应缩短
+            _force_max_retries_override = 0
+        else:
+            CONNECT_TIMEOUT = self.CONNECT_TIMEOUT
+            _outer_timeout_factor = 1.0
+            _force_max_retries_override = None
 
         def factory():
             async def _do():
+                # 清理旧连接（避免 BLE 残留连接阻塞新连接）
+                if _self._client is not None:
+                    try:
+                        old, _self._client = _self._client, None
+                        await old.disconnect()
+                    except Exception:
+                        pass
                 import asyncio as _aio
-                max_retries = 1
+                max_retries = (
+                    _force_max_retries_override
+                    if _force_max_retries_override is not None
+                    else 1
+                )
                 backoff = 2.0
                 last_exc = None
                 friendly: Optional[str] = None
@@ -540,13 +564,26 @@ class BleTransport:
                         try:
                             svcs = await _aio.wait_for(client.get_services(),
                                                        timeout=CONNECT_TIMEOUT)
-                            svc_uuids = [str(s.uuid).lower() for s in svcs]
+                            # 兼容新版 bleak：get_services() 返回的是
+                            # BleakGATTServiceCollection（dict-like，无 len()/
+                            # 直接迭代可能失败）；统一转 list 再处理。
+                            try:
+                                svc_list = list(svcs)
+                            except Exception:
+                                # 更旧版 / 非 WinRT 后端可能直接就是 list
+                                svc_list = svcs if isinstance(svcs, list) else []
+                            svc_uuids = [str(s.uuid).lower() for s in svc_list]
                             char_uuids = []
-                            for s in svcs:
-                                for c in s.characteristics:
+                            for s in svc_list:
+                                try:
+                                    chars = list(s.characteristics)
+                                except Exception:
+                                    chars = (s.characteristics if isinstance(
+                                        s.characteristics, list) else [])
+                                for c in chars:
                                     char_uuids.append(str(c.uuid).lower())
                             logger.info("[connect] 发现 %d 个服务, %d 个特征值",
-                                        len(svcs), len(char_uuids))
+                                        len(svc_list), len(char_uuids))
                             logger.info("[connect] services: %s", svc_uuids)
                             has_ae20 = SERVICE_UUID in svc_uuids
                             has_ae22 = CHAR_NOTIFY_MAIN in char_uuids
@@ -644,11 +681,14 @@ class BleTransport:
             return _do()
         # 外层超时（主线程事件循环）：当 MTA worker 事件循环被 BLE 操作
         # 阻塞时，内层 wait_for 无法触发，需要主线程的外层超时来兜底
-        OUTER_TIMEOUT = 20.0  # 主线程外层超时：MTA worker 阻塞时兜底
+        # 标准模式：CONNECT_TIMEOUT(12s)×2 步 + 重试间隔 3s + 余量 → 30s
+        # 快速模式：相应缩短（系数 0.7 → 21s，远超内层 6s）
+        OUTER_TIMEOUT = 30.0 * _outer_timeout_factor  # 主线程外层超时
         try:
             return await asyncio.wait_for(_run_in_mta(factory), timeout=OUTER_TIMEOUT)
         except asyncio.TimeoutError:
             # MTA worker 事件循环被阻塞，重启以恢复
+            self._client = None  # 清理可能残留的客户端
             if self.on_connect_progress:
                 try:
                     self.on_connect_progress("连接超时，正在恢复 BLE 线程…")
