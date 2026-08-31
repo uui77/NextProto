@@ -569,61 +569,70 @@ class Recorder:
     async def delete_file(self, entry: FileEntry) -> Optional[int]:
         """2-8 删除单个文件。
 
-        双帧格式探测：
-          格式 A（协议文档标准）：28B 列表条目  = time4BE + size4BE + name20
-          格式 B（兼容部分固件）：28B 导入格式  = offset4LE(0) + filename24（带扩展名）
-        若 A 返回 code=1，则用 entry.candidate_names() 逐个填充 B 格式重试。
+        帧格式（经官方 App 实测：V1.0.0 固件只认「格式 B」，「格式 A」始终回 code=1 或不应答）：
+          格式 B（官方 App / 设备实际要求）：28B  = 偏移量 4B LE(0x00000000) + 文件名 24B（带扩展名，如 .opus）
+          格式 A（列表条目 / 兜底）：        28B  = 录音时长 4B BE + 文件大小 4B BE + 截断文件名 20B（无扩展名）
+
+        优先顺序：
+          1) B .opus 名（.opus 是设备实际存储格式，99% 命中）
+          2) B 截断名（列表里的原始名，末尾可能带 . 也可能不带扩展名）
+          3) A 列表条目（纯兜底，某些老固件可能仍认这种）
+        每种格式最多 2 次尝试（第 2 次更充分的 abort 清理）。
         """
         import time as _t
         import struct as _st
 
-        # ---- 生成候选删除帧 payload ----
-        payloads: List[bytes] = []
-        # 格式 A：列表原始 28B
-        payloads.append(entry.raw)
-        fmt_a_hex = entry.raw.hex()
-        # 格式 B：每个候选文件名 1 个，共 3 个（.opus / .wav / 截断名）
-        fmt_b_info: List[str] = []
-        for cand in entry.candidate_names():
-            name_24 = P.encode_filename_24(cand)
-            payload = _st.pack("<I", 0) + name_24  # offset=0 LE + filename 24B
-            payloads.append(payload)
-            fmt_b_info.append(f"{cand}({payload.hex()})")
-        logger.info("[delete_file] 候选帧数=%d：A=%s；B=%s",
-                    len(payloads), fmt_a_hex, " | ".join(fmt_b_info))
+        cands = entry.candidate_names()           # [.opus 名, .wav 名, 截断名]
+        # 构建有序 payload 列表：(标签, payload_bytes)
+        frames: List[tuple] = []
+        # 1) B .opus
+        if len(cands) >= 1:
+            payload_b_opus = _st.pack("<I", 0) + P.encode_filename_24(cands[0])
+            frames.append((f"B:{cands[0]}", payload_b_opus))
+        # 2) B 截断名（=列表原始 name，cands[2] 或 entry.name）
+        raw_name = cands[2] if len(cands) >= 3 else entry.name.strip()
+        payload_b_raw = _st.pack("<I", 0) + P.encode_filename_24(raw_name)
+        frames.append((f"B:{raw_name}", payload_b_raw))
+        # 3) A 列表条目（兜底）
+        frames.append(("A:列表条目", entry.raw))
+
+        logger.info("[delete_file] 删除候选：%s",
+                    " → ".join(f"{lb}({p.hex()})" for lb, p in frames))
 
         last_code: Optional[int] = None
-        for pi, del_payload in enumerate(payloads):
-            fmt_label = ("A列表条目" if pi == 0
-                         else f"B导入名({entry.candidate_names()[pi-1]})")
-            # 每种格式最多重试 2 次（会话清理可能需要多轮）
+        for fi, (label, del_payload) in enumerate(frames):
+            # 每种格式最多 2 次（第 1 次快速、第 2 次更充分等待）
             for attempt in range(2):
                 _t0 = _t.time()
                 await self.abort_download()
                 self._dl_active = False
                 self._dl_future = None
                 self._cancel_download_idle()
-                wait_s = 0.4 + 0.3 * attempt + 0.2 * pi
+                # 格式序号越靠后、尝试次数越靠后 → 等待越久
+                wait_s = 0.3 + 0.2 * attempt + 0.2 * fi
                 await asyncio.sleep(wait_s)
-                logger.info("[delete_file] 帧%s #%d/%d：payload=%s  等待%.0fms",
-                            fmt_label, attempt + 1, 2,
-                            del_payload.hex(), wait_s * 1000)
+                logger.info("[delete_file] [%s] #%d/2：payload=%s  wait %.0fms",
+                            label, attempt + 1, del_payload.hex(), wait_s * 1000)
                 try:
                     frame = await self._request(
                         P.TYPE_FILE, P.FILE_DELETE_ONE, del_payload,
                         P.FILE_DELETE_ONE_RESP, timeout=DELETE_RESP_TIMEOUT)
                     code = frame.body[0] if frame.body else None
                 except asyncio.TimeoutError:
-                    logger.info("[delete_file] 帧%s #%d：超时未应答（%.0fms）",
-                                fmt_label, attempt + 1, (_t.time() - _t0) * 1000)
-                    return None  # 已发送，固件未应答
+                    elapsed_ms = (_t.time() - _t0) * 1000
+                    logger.info("[delete_file] [%s] #%d：超时未应答（%.0fms）→ 下一帧/重试",
+                                label, attempt + 1, elapsed_ms)
+                    # 超时不应立即退出：可能是这一帧格式不被识别（设备直接丢弃不回应）
+                    last_code = last_code if last_code is not None else 1
+                    break  # 换下一帧
                 elapsed_ms = (_t.time() - _t0) * 1000
-                logger.info("[delete_file] 帧%s #%d：返回 code=%s  耗时%.0fms",
-                            fmt_label, attempt + 1, code, elapsed_ms)
+                logger.info("[delete_file] [%s] #%d：返回 code=%s  耗时%.0fms",
+                            label, attempt + 1, code, elapsed_ms)
                 if code == 0:
                     return 0
                 last_code = code
-                # code=1 才重试；其他非零 code 直接跳到下一帧格式
+                # code=1 → 本格式再试一次（会话可能还没清干净）
+                # 非零且非 1 → 直接跳到下一帧格式
                 if code != 1:
                     break
         return last_code
