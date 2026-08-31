@@ -144,10 +144,15 @@ DEFAULT_CHUNK = 20  # 未协商 MTU 时的保守单包载荷
 DEVICE_NAME_KEYWORDS = ("cb08", "qs668")
 
 # WinError → 中文友好提示（对应 bleak 在 Windows 上常见的适配器错误）
-#   -2147020577 = 0x800710DF = HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE /
-#                                             OR ERROR_NOT_READY?)
-#   -2147467259 = 0x80004005 = E_FAIL（一般也是蓝牙关了）
-#   -2147024809 = 0x80070057 = E_INVALIDARG（极少数情况也是适配器没起来）
+#   -2147020577 = 0x800710DF = HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE)
+#   -2147467259 = 0x80004005 = E_FAIL（一般也是蓝牙关了/适配器 hang）
+#   -2147024809 = 0x80070057 = E_INVALIDARG
+#   -2147467260 = 0x80004004 = E_ABORT「已中止操作」—— 刚配对完就立即连接、
+#                   或上一个 BLE 客户端未断开就新建连接时，WinRT GATT 异步
+#                   操作会被 COM 层主动 cancel。不是"蓝牙接口不可用"，通常
+#                   重试 / 断开旧连接 / 再等几秒即可。
+#   -2147417842 = 0x8001010E = RPC_E_WRONG_THREAD / E_NOINTERFACE 变体，
+#                   同样提示清理后重试。
 _WINERROR_HINTS = {
     -2147020577: (
         "蓝牙未开启或适配器未就绪。请在 Windows 设置 → 蓝牙和其他设备 中打开蓝牙，"
@@ -162,11 +167,17 @@ _WINERROR_HINTS = {
         "未找到蓝牙适配器。请确认电脑带有蓝牙功能，且在设备管理器中没有被禁用。"
     ),
     -2147467260: (
-        "蓝牙接口不可用（E_NOINTERFACE）。这通常是 Windows 蓝牙服务异常导致的。\n"
-        "请尝试：\n"
-        "  1) 重启蓝牙服务：Win+R → services.msc → 找到 Bluetooth Support Service → 右键重启\n"
-        "  2) 在 Windows 设置 → 蓝牙中删除录音笔配对记录，重新扫描配对\n"
-        "  3) 如果频繁出现，重启电脑后重试"
+        "蓝牙连接被系统中止（E_ABORT）。这通常发生在「刚配对完立即连接」或\n"
+        "上一次连接尚未完全清理时，Windows 主动取消了 GATT 操作。可立即重试，\n"
+        "如仍失败可尝试：\n"
+        "  1) 等待 5~10 秒再连接\n"
+        "  2) 在 Windows 设置 → 蓝牙中删除录音笔配对后重新配对\n"
+        "  3) 频繁出现时：重启 Bluetooth Support Service 或重启电脑"
+    ),
+    -2147417842: (
+        "蓝牙跨线程接口不可用（RPC_E_WRONG_THREAD）。Windows BLE 线程处于\n"
+        "异常状态。建议：断开再重连；如仍失败请在 Windows「设置 → 蓝牙」\n"
+        "中删除录音笔配对并重新扫描配对。"
     ),
 }
 
@@ -653,10 +664,25 @@ class BleTransport:
                             "unreachable" in msg_lower or
                             "could not get gatt services" in msg_lower
                         )
-                    # 失败清理
+                        # E_ABORT (0x80004004) = 刚配对完立即 connect /
+                        # WinRT 内部 COM 对象状态异常。99% 再等几秒、
+                        # 清理旧客户端后重试即可成功，应视为可重试。
+                        if (isinstance(exc, OSError)
+                                and getattr(exc, "winerror", None) == -2147467260):
+                            timeout_this_attempt = True  # 走"超时等待后重试"分支
+                            unreachable_this_attempt = False
+                    # 失败清理：无论 client 是否标记为 is_connected，都强制
+                    # disconnect() 一次——否则 WinRT 会把旧 GATT 会话对象挂在
+                    # 系统层，下一次 BleakClient() 新建连接时读到的是陈旧
+                    # COM 接口，直接抛 E_ABORT / E_NOINTERFACE。
                     try:
-                        if client.is_connected:
-                            await client.disconnect()
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                    # 再额外把 client 对象的内部引用释放掉，避免 GC 拖延
+                    # 导致 WinRT 缓存迟迟不释放。
+                    try:
+                        client._backend = None
                     except Exception:
                         pass
                     _self._client = None

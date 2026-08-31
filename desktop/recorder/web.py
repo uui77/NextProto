@@ -601,7 +601,8 @@ def create_app(output_dir: Path):
                 raise
             err_msg = str(first_err)
             log_push("WARN", f"直接连接失败（{_t.time()-_t0:.0f}s）：{err_msg[:80]}，尝试配对后重试…")
-            # 清理旧连接
+            # 清理旧连接（快速模式失败后的 BleakClient 若不干净，Windows BLE 栈
+            # 下一次新建连接时会读到陈旧 WinRT COM 接口 → 抛 E_ABORT 0x80004004）
             try:
                 await recorder.disconnect()
             except Exception:
@@ -610,8 +611,16 @@ def create_app(output_dir: Path):
             try:
                 result = await recorder.pair(device)
                 if result is True:
+                    # 配对刚完成的 3~5 秒 Windows BLE 栈内部状态极不稳定，
+                    # 此时 connect() 大概率抛 E_ABORT。先等 8 秒 + 再主动
+                    # disconnect() 清一次残留，再做标准模式连接。
                     log_push("INFO", f"自动配对完成：{addr}；给设备 8 秒冷却后连接")
                     await asyncio.sleep(8.0)
+                    try:
+                        await recorder.transport.disconnect()
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1.2)
                 elif result == "settings_opened":
                     log_push("WARN", "自动配对已跳转 Windows「添加设备」向导——请先在系统里"
                                      "完成配对（PIN 0000/1234），配完后再手动点连接。")
@@ -622,7 +631,8 @@ def create_app(output_dir: Path):
                     })
             except Exception as exc:
                 logger.info("自动配对未完成（继续尝试连接）：%s", exc)
-            # 重试连接（标准模式，允许完整 2 轮重试）
+            # 重试连接（标准模式，允许完整 2 轮重试；若第 1 轮抛 E_ABORT，
+            # ble.py 内会判定为可重试 → 等待 3s 自动再连第 2 轮）
             await recorder.connect(device)
         synced = True
         try:
